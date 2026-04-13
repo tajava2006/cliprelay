@@ -1,0 +1,9 @@
+{
+  "name": "cliprelay",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @cliprelay/app dev",
+    "build": "pnpm --filter @cliprelay/app build",
+    "tauri": "pnpm --filter @cliprelay/app tauri"
+  }
+}

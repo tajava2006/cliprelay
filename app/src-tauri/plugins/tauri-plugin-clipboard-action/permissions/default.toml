@@ -1,0 +1,11 @@
+[default]
+description = "Allow all clipboard-action plugin commands"
+permissions = [
+  "allow-get-pending-sync",
+  "allow-consume-pending-copy",
+  "allow-clear-pending-sync",
+  "allow-consume-pending-history",
+  "allow-write-image-to-clipboard",
+  "allow-read-clipboard-text",
+  "allow-read-clipboard-image",
+]

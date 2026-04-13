@@ -1,0 +1,9 @@
+[default]
+description = "Allow all amber plugin commands"
+permissions = [
+  "allow-is-installed",
+  "allow-get-public-key",
+  "allow-sign-event",
+  "allow-nip44-encrypt",
+  "allow-nip44-decrypt",
+]

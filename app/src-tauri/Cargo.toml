@@ -1,0 +1,34 @@
+[package]
+name = "cliprelay"
+version = "0.0.2"
+description = "ClipRelay — cross-device clipboard sync via Nostr"
+authors = ["hoppe"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "cliprelay_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-http = "2.5.7"
+tauri-plugin-notification = "2.3.3"
+tauri-plugin-amber = { path = "plugins/tauri-plugin-amber" }
+tauri-plugin-foreground-service = { path = "plugins/tauri-plugin-foreground-service" }
+tauri-plugin-notification-android = { path = "plugins/tauri-plugin-notification-android" }
+tauri-plugin-clipboard-action = { path = "plugins/tauri-plugin-clipboard-action" }
+tauri-plugin-keychain = { path = "plugins/tauri-plugin-keychain" }
+

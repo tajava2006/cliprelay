@@ -1,0 +1,6 @@
+[default]
+description = "Allow all notification-android plugin commands"
+permissions = [
+  "allow-show-received",
+  "allow-dismiss",
+]

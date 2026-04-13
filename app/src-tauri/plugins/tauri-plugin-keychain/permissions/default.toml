@@ -1,0 +1,7 @@
+[default]
+description = "Allow all keychain plugin commands"
+permissions = [
+  "allow-set-secret",
+  "allow-get-secret",
+  "allow-delete-secret",
+]

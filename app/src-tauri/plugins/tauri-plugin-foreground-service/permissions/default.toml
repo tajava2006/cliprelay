@@ -1,0 +1,7 @@
+[default]
+description = "Allow all foreground-service plugin commands"
+permissions = [
+  "allow-start-service",
+  "allow-stop-service",
+  "allow-is-running",
+]

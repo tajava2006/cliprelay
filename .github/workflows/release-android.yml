@@ -1,0 +1,91 @@
+name: Release Android
+
+on:
+  push:
+    tags:
+      - 'android/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#android/v}" >> $GITHUB_OUTPUT
+
+      - name: Patch version in tauri.conf.json
+        run: |
+          cd app/src-tauri
+          sed -i 's/"version": ".*"/"version": "${{ steps.version.outputs.version }}"/' tauri.conf.json
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.0.12077973"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/src-tauri/target
+          key: android-rust-${{ hashFiles('app/src-tauri/Cargo.lock') }}
+          restore-keys: android-rust-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > /tmp/release.jks
+
+      - name: Build Android APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          ANDROID_KEYSTORE_PATH: /tmp/release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: app
+        run: pnpm tauri android build --apk
+
+      - name: Rename APK
+        run: |
+          APK=$(find app/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -path '*/release/*' | head -1)
+          cp "$APK" "ClipRelay-${{ steps.version.outputs.version }}.apk"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Android v${{ steps.version.outputs.version }}"
+          draft: true
+          files: ClipRelay-${{ steps.version.outputs.version }}.apk

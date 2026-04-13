@@ -1,0 +1,17 @@
+# ref
+nips
+nostr-tools
+/blossom
+/Amber
+
+# ai
+.serena
+.claude
+.specify
+
+# dependencies
+**/node_modules
+
+# build outputs
+dist
+app/src-tauri/target

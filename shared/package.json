@@ -1,0 +1,12 @@
+{
+  "name": "@cliprelay/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.23.0"
+  }
+}

@@ -12,6 +12,7 @@ import { getSharedPool } from './pool'
 import type { ClipboardPayload } from '@cliprelay/shared'
 import { getSigner } from '../platform/signer'
 import { loadAuth } from '../store/auth-store'
+import { appendHistory } from '../store/history-store'
 import { toast } from '../toast'
 import { t } from '../i18n'
 
@@ -52,6 +53,13 @@ export async function publishClipboard(
       ['expiration', String(Math.floor(Date.now() / 1000) + 86400)],
     ],
   })
+
+  // 발행 전 미리 저장 — 릴레이 에코 수신 시 중복 처리(복호화·클립보드 쓰기·알림) 방지
+  await appendHistory({
+    id: event.id,
+    createdAt: event.created_at,
+    payload,
+  }).catch(err => console.error('[publish] history save failed:', err))
 
   toast(t('toast.broadcast.start'))
   const pool = getSharedPool()

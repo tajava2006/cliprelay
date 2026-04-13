@@ -32,6 +32,12 @@ export async function clearHistory(): Promise<void> {
   await store.set('items', [])
 }
 
+export async function hasHistoryId(id: string): Promise<boolean> {
+  const store = await getStore()
+  const items = (await store.get<HistoryItem[]>('items')) ?? []
+  return items.some(item => item.id === id)
+}
+
 export async function appendHistory(item: HistoryItem): Promise<void> {
   const store = await getStore()
   const items = (await store.get<HistoryItem[]>('items')) ?? []

@@ -19,7 +19,7 @@ import { toast } from '../toast'
 import { t } from '../i18n'
 import { sendNotification, isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification'
 import { downloadAndDecrypt } from '../blossom/download'
-import { appendHistory } from '../store/history-store'
+import { appendHistory, hasHistoryId } from '../store/history-store'
 import { isAndroid } from '../platform/detect'
 import { showReceivedNotification } from '../platform/notification-android'
 
@@ -157,20 +157,28 @@ export function startClipboardSubscription(
           return
         }
 
-        if (isAndroid() && document.visibilityState === 'hidden') {
-          // Android 백그라운드: 복호화하지 않음. 알림만 표시.
-          // 알림 탭 → ClipboardActionActivity → Amber 직접 복호화 → 클립보드 쓰기.
-          console.log('[subscribe] android background — showing notification for event:', event.id.slice(0, 8))
-          void showReceivedNotification(
-            t('notification.received.tap'),
-            event.content,
-            userPubkey,
-          ).catch(err => console.error('[subscribe] android notification failed:', err))
-          return
-        }
+        void (async () => {
+          // 발신 에코 감지: 발행 시 미리 저장했으므로 이미 있으면 자기 에코
+          if (await hasHistoryId(event.id)) {
+            console.log('[subscribe] own event echo, skipping:', event.id.slice(0, 8))
+            return
+          }
 
-        // 데스크탑 또는 Android 포그라운드: 즉시 복호화 → 클립보드 쓰기
-        void processDesktopEvent(event, userPubkey, onTextWritten, onImageWritten)
+          if (isAndroid() && document.visibilityState === 'hidden') {
+            // Android 백그라운드: 복호화하지 않음. 알림만 표시.
+            // 알림 탭 → ClipboardActionActivity → Amber 직접 복호화 → 클립보드 쓰기.
+            console.log('[subscribe] android background — showing notification for event:', event.id.slice(0, 8))
+            void showReceivedNotification(
+              t('notification.received.tap'),
+              event.content,
+              userPubkey,
+            ).catch(err => console.error('[subscribe] android notification failed:', err))
+            return
+          }
+
+          // 데스크탑 또는 Android 포그라운드: 즉시 복호화 → 클립보드 쓰기
+          void processDesktopEvent(event, userPubkey, onTextWritten, onImageWritten)
+        })()
       },
     },
   )

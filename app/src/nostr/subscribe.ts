@@ -73,7 +73,7 @@ async function processDesktopEvent(
       onTextWritten(payload.content)
       await writeClipboardText(payload.content)
       toast(t('toast.clipboard.updated'), 'ok')
-      void notifyClipboardUpdated(payload.content.slice(0, 60))
+      void notifyClipboardUpdated(t('toast.clipboard.updated'))
       console.log('[subscribe] text received', event.id.slice(0, 8))
     } catch (err) {
       console.error('[subscribe] clipboard write failed:', err)

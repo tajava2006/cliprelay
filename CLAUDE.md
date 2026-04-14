@@ -32,6 +32,7 @@ OS 클립보드 → 클립보드 모니터 → Nostr 서비스 → 릴레이
 - 클립보드 이벤트의 content는 **항상** NIP-44 자기암호화(self-encryption)로 암호화한다.
 - 자기암호화: `conversation_key = get_conversation_key(userPrivKey, userPubKey)`
 - **암호화 실패 시 절대 발행하지 않는다.** 평문을 릴레이에 올리는 코드는 절대 작성하지 않는다.
+- **복호화된 클립보드 내용은 앱 자체 저장소(히스토리 스토어, OS 클립보드) 외에 그 어디에도 저장·전달하지 않는다.** OS 알림, 로그(logcat/console), Intent extras, SharedPreferences, 크래시 리포트 등 앱 외부에서 읽을 수 있는 경로에 복호화된 내용을 절대 넣지 않는다. 알림에는 고정 안내 문구만 사용한다.
 
 ### 3. 릴레이 디스커버리 — 하드코딩 금지
 

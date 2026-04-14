@@ -10,17 +10,11 @@
  *   6. FilePayload 반환 (key, iv 포함 → kind:9372에서 NIP-44로 암호화됨)
  */
 import { fetch } from '@tauri-apps/plugin-http'
+import { bytesToHex, type FilePayload } from '@cliprelay/shared'
 import { getSigner } from '../platform/signer'
 import { loadAuth } from '../store/auth-store'
-import type { FilePayload } from '@cliprelay/shared'
 
 const AUTH_EXPIRY_SECONDS = 60
-
-// ─── 헬퍼 ────────────────────────────────────────────────────
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
-}
 
 async function sha256hex(bytes: Uint8Array): Promise<string> {
   const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', bytes.buffer as ArrayBuffer)

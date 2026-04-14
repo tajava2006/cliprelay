@@ -12,6 +12,9 @@
  */
 import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
+
+export { bytesToHex, hexToBytes }
 
 /**
  * NIP-46 핸드쉐이크용 부트스트랩 릴레이.
@@ -23,22 +26,6 @@ export const NIP46_BOOTSTRAP_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
 ]
-
-// ─── 유틸리티 ────────────────────────────────────────────────
-
-export function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-export function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16)
-  }
-  return bytes
-}
 
 // ─── 클라이언트 키페어 ────────────────────────────────────────
 

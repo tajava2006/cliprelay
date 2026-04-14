@@ -9,15 +9,8 @@
  * URL이 깨진 경우 사용자의 Blossom 서버 목록(kind:10063)에서 sha256으로 폴백.
  */
 import { fetch } from '@tauri-apps/plugin-http'
+import { hexToBytes } from '@cliprelay/shared'
 import { loadBlossomServers } from '../store/blossom-store'
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16)
-  }
-  return bytes
-}
 
 /**
  * AES-GCM으로 암호화된 바이너리를 복호화한다.

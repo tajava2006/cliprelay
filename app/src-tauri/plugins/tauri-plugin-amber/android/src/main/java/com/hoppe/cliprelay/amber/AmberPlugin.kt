@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.util.Log
 import android.webkit.WebView
+import com.hoppe.cliprelay.amber.BuildConfig
 import androidx.activity.result.ActivityResult
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
@@ -112,7 +113,7 @@ class AmberPlugin(private val activity: Activity) : Plugin(activity) {
         Thread {
             try {
                 val uri = Uri.parse("content://$authority")
-                Log.d(TAG, "ContentProvider query: uri=$uri")
+                if (BuildConfig.DEBUG) Log.d(TAG, "ContentProvider query: uri=$uri")
                 val cursor = activity.contentResolver.query(uri, projection, null, null, null)
                 if (cursor == null) {
                     Log.w(TAG, "ContentProvider null cursor — falling back")
@@ -132,7 +133,7 @@ class AmberPlugin(private val activity: Activity) : Plugin(activity) {
                         return@Thread
                     }
                     val value = extractResult(it)
-                    Log.d(TAG, "ContentProvider extracted: ${value?.take(80)}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "ContentProvider extracted: ${value?.take(80)}")
                     if (!value.isNullOrEmpty()) {
                         val obj = JSObject()
                         obj.put("result", value)
@@ -143,7 +144,11 @@ class AmberPlugin(private val activity: Activity) : Plugin(activity) {
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "ContentProvider exception: ${e.javaClass.simpleName}: ${e.message} — falling back")
+                if (BuildConfig.DEBUG) {
+                    Log.e(TAG, "ContentProvider exception: ${e.javaClass.simpleName}: ${e.message} — falling back")
+                } else {
+                    Log.e(TAG, "ContentProvider exception: ${e.javaClass.simpleName} — falling back")
+                }
                 activity.runOnUiThread { onFallback() }
             }
         }.start()

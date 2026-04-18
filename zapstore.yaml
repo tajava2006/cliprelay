@@ -1,6 +1,6 @@
 repository: https://github.com/tajava2006/cliprelay
 
-identifier: com.hoppe.cliprelay
+match: "ClipRelay-.*\\.apk$"
 
 name: ClipRelay
 summary: Clipboard sync across your devices via Nostr
@@ -13,8 +13,5 @@ tags:
   - nostr
   - productivity
   - clipboard
-
-assets:
-  - ClipRelay-*.apk
 
 pubkey: 0aea075b010fb595d6814f5633008e870d77a2c43d4dda1544e8730e00995144

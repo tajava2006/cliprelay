@@ -21,7 +21,6 @@ import { sendNotification, isPermissionGranted, requestPermission } from '@tauri
 import { downloadAndDecrypt } from '../blossom/download'
 import { appendHistory, hasHistoryId } from '../store/history-store'
 import { isAndroid } from '../platform/detect'
-import { showReceivedNotification } from '../platform/notification-android'
 
 async function notifyClipboardUpdated(detail: string): Promise<void> {
   try {
@@ -126,6 +125,55 @@ export function startClipboardSubscription(
   // 이미 처리한 이벤트 ID를 추적해 중복 수신을 방지한다.
   const processedIds = new Set<string>()
 
+  // --- 이벤트 처리 큐 ---
+  // 백그라운드 복귀 등으로 이벤트가 한꺼번에 밀려올 때
+  // 동시 복호화/저장으로 앱이 터지는 것을 방지한다.
+  // 이벤트를 큐에 넣고 하나씩 순차 처리한다.
+  type QueuedEvent = { id: string; created_at: number; content: string; tags: string[][] }
+  const eventQueue: QueuedEvent[] = []
+  let queueProcessing = false
+
+  async function processQueue(): Promise<void> {
+    if (queueProcessing) return
+    queueProcessing = true
+    while (eventQueue.length > 0) {
+      const event = eventQueue.shift()!
+      try {
+        // 발신 에코 감지
+        if (await hasHistoryId(event.id)) {
+          console.log('[subscribe] own event echo, skipping:', event.id.slice(0, 8))
+          continue
+        }
+
+        if (isAndroid() && document.visibilityState === 'hidden') {
+          // Android 백그라운드: 네이티브 구독(OkHttp)이 알림을 처리한다.
+          // JS가 이벤트를 받았다면 히스토리만 저장 (보너스).
+          console.log('[subscribe] android background — event:', event.id.slice(0, 8))
+          try {
+            const plaintext = await getSigner().nip44Decrypt(userPubkey, event.content)
+            const payload = JSON.parse(plaintext) as ClipboardPayload
+            await appendHistory({ id: event.id, createdAt: event.created_at, payload })
+            console.log('[subscribe] android background — history saved:', event.id.slice(0, 8))
+          } catch (err) {
+            console.warn('[subscribe] android background decrypt/history failed:', err)
+          }
+        } else {
+          // 데스크탑 또는 Android 포그라운드: 즉시 복호화 → 클립보드 쓰기
+          await processDesktopEvent(event, userPubkey, onTextWritten, onImageWritten)
+        }
+      } catch (err) {
+        console.error('[subscribe] queue item processing failed:', event.id.slice(0, 8), err)
+      }
+    }
+    queueProcessing = false
+  }
+
+  function enqueueEvent(event: QueuedEvent): void {
+    eventQueue.push(event)
+    void processQueue()
+  }
+  // --- 큐 끝 ---
+
   const sub = pool.subscribeMany(
     writeRelays,
     {
@@ -156,29 +204,7 @@ export function startClipboardSubscription(
           console.log('[subscribe] client tag mismatch, ignoring (tag:', clientTag?.[1], ')')
           return
         }
-
-        void (async () => {
-          // 발신 에코 감지: 발행 시 미리 저장했으므로 이미 있으면 자기 에코
-          if (await hasHistoryId(event.id)) {
-            console.log('[subscribe] own event echo, skipping:', event.id.slice(0, 8))
-            return
-          }
-
-          if (isAndroid() && document.visibilityState === 'hidden') {
-            // Android 백그라운드: 복호화하지 않음. 알림만 표시.
-            // 알림 탭 → ClipboardActionActivity → Amber 직접 복호화 → 클립보드 쓰기.
-            console.log('[subscribe] android background — showing notification for event:', event.id.slice(0, 8))
-            void showReceivedNotification(
-              t('notification.received.tap'),
-              event.content,
-              userPubkey,
-            ).catch(err => console.error('[subscribe] android notification failed:', err))
-            return
-          }
-
-          // 데스크탑 또는 Android 포그라운드: 즉시 복호화 → 클립보드 쓰기
-          void processDesktopEvent(event, userPubkey, onTextWritten, onImageWritten)
-        })()
+        enqueueEvent(event)
       },
     },
   )

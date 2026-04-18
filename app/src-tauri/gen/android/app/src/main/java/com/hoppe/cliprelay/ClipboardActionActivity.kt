@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
-import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -32,7 +31,6 @@ class ClipboardActionActivity : Activity() {
 
     companion object {
         private const val AMBER_REQUEST_CODE = 1001
-        private const val PREFS_NAME = "clipboard_action_history"
         private const val GCM_TAG_LENGTH_BITS = 128
     }
 
@@ -113,12 +111,12 @@ class ClipboardActionActivity : Activity() {
 
             when (type) {
                 "text" -> {
-                    handleTextPayload(json, decrypted)
+                    handleTextPayload(json)
                     dismissAndFinish()
                 }
                 "file" -> {
                     // handleFilePayload는 비동기 — 내부에서 dismissAndFinish() 호출
-                    handleFilePayload(json, decrypted)
+                    handleFilePayload(json)
                     return
                 }
                 else -> {
@@ -144,12 +142,11 @@ class ClipboardActionActivity : Activity() {
     /**
      * 텍스트 페이로드: 클립보드에 텍스트 쓰기.
      */
-    private fun handleTextPayload(json: org.json.JSONObject, rawJson: String) {
+    private fun handleTextPayload(json: org.json.JSONObject) {
         val content = json.getString("content")
         val clipboard = getSystemService(ClipboardManager::class.java)
         clipboard.setPrimaryClip(ClipData.newPlainText("ClipRelay", content))
         Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
-        saveToTempHistory(rawJson)
     }
 
     /**
@@ -158,7 +155,7 @@ class ClipboardActionActivity : Activity() {
      * 네트워크 + 암호화 작업이므로 백그라운드 스레드에서 실행한다.
      * finish()는 작업 완료 후 호출.
      */
-    private fun handleFilePayload(json: org.json.JSONObject, rawJson: String) {
+    private fun handleFilePayload(json: org.json.JSONObject) {
         val url = json.getString("url")
         val keyHex = json.getString("key")
         val ivHex = json.getString("iv")
@@ -194,7 +191,6 @@ class ClipboardActionActivity : Activity() {
                         val imageClip = ClipData("ClipRelay", arrayOf(mimeType), ClipData.Item(contentUri))
                         clipboard.setPrimaryClip(imageClip)
                         Toast.makeText(this, "Image copied", Toast.LENGTH_SHORT).show()
-                        saveToTempHistory(rawJson)
                     } catch (e: Exception) {
                         Toast.makeText(this, "Clipboard write failed", Toast.LENGTH_SHORT).show()
                     }
@@ -249,16 +245,6 @@ class ClipboardActionActivity : Activity() {
             bytes[i] = hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
         }
         return bytes
-    }
-
-    /**
-     * 복호화된 payload를 SharedPreferences에 임시 저장.
-     * 앱이 열릴 때 TS가 이걸 읽어서 history-store에 저장한다.
-     */
-    private fun saveToTempHistory(payloadJson: String) {
-        val prefs: SharedPreferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val timestamp = System.currentTimeMillis()
-        prefs.edit().putString("pending_$timestamp", payloadJson).apply()
     }
 
     /**

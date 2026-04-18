@@ -12,18 +12,17 @@ import { loadAuth, clearAuth } from './store/auth-store'
 import { loadWriteRelays, saveWriteRelays } from './store/relay-store'
 import { loadBlossomServers, saveBlossomServers } from './store/blossom-store'
 import { loadProfile, saveProfile } from './store/profile-store'
-import { setSigner, clearSigner } from './platform/signer'
+import { setSigner, clearSigner, getSigner } from './platform/signer'
 import { getSharedPool, destroySharedPool } from './nostr/pool'
-import { startForegroundService, stopForegroundService } from './platform/foreground-service'
-import { consumePendingHistory, readClipboardImage } from './platform/clipboard-action'
-import { appendHistory } from './store/history-store'
-import type { ClipboardPayload } from '@cliprelay/shared'
+import { startForegroundService, stopForegroundService, onNetworkChanged, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/foreground-service'
+import { readClipboardImage } from './platform/clipboard-action'
 import { publishClipboard } from './nostr/publish'
 import { isAndroid } from './platform/detect'
 import { invoke } from '@tauri-apps/api/core'
 import { startPlatformClipboardMonitor } from './platform/clipboard'
 import type { ClipboardMonitor } from './clipboard/monitor'
 import { startClipboardSubscription, type ClipboardSubscription } from './nostr/subscribe'
+import { appendHistory, hasHistoryId } from './store/history-store'
 import { rgbaToPng } from './blossom/upload'
 import { uploadImage } from './blossom/upload'
 import {
@@ -32,7 +31,7 @@ import {
   fetchBlossomServers, subscribeBlossomServers,
   fetchProfile, subscribeProfile,
 } from '@cliprelay/shared'
-import type { UserProfile } from '@cliprelay/shared'
+import type { UserProfile, ClipboardPayload } from '@cliprelay/shared'
 import { Login } from './pages/Login'
 import { History } from './pages/History'
 import { Main } from './pages/Main'
@@ -65,28 +64,6 @@ function App() {
     [],
   )
 
-  /** Android: ClipboardActionActivity가 SharedPreferences에 임시 저장한 히스토리를 수거 */
-  const importPendingHistory = async () => {
-    try {
-      const items = await consumePendingHistory()
-      for (const json of items) {
-        try {
-          const payload = JSON.parse(json) as ClipboardPayload
-          await appendHistory({
-            id: `android-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            createdAt: Math.floor(Date.now() / 1000),
-            payload,
-          })
-        } catch (err) {
-          console.error('[history] failed to import pending item:', err)
-        }
-      }
-      if (items.length > 0) console.log(`[history] imported ${items.length} pending items from Android`)
-    } catch (err) {
-      console.error('[history] consumePendingHistory failed:', err)
-    }
-  }
-
   const startBlossomDiscovery = (userPubkey: string, writeRelays: string[]) => {
     blossomSubCleanupRef.current?.()
     blossomSubCleanupRef.current = subscribeBlossomServers(userPubkey, writeRelays, servers => {
@@ -118,6 +95,8 @@ function App() {
       startBlossomDiscovery(userPubkey, relays)
       startProfileDiscovery(userPubkey, relays)
       restartClipboardSubscription(userPubkey)
+      // Android: 네이티브 OkHttp 구독도 새 릴레이로 재시작 (startService Intent 경유)
+      void startForegroundService(relays, userPubkey).catch(err => console.warn('[native-sub] relay change restart failed:', err))
     }, getSharedPool())
   }
 
@@ -213,18 +192,48 @@ function App() {
       }
     }
 
-    // Android: Foreground Service 시작 (WebSocket 백그라운드 유지)
-    void startForegroundService().catch(err => console.warn('[foreground-service] start failed:', err))
+    // Android: Foreground Service 시작 + 네이티브 릴레이 구독 (캐시된 릴레이로 즉시)
+    void startForegroundService(writeRelaysRef.current.length > 0 ? writeRelaysRef.current : undefined, writeRelaysRef.current.length > 0 ? userPubkey : undefined)
+      .catch(err => console.warn('[foreground-service] start failed:', err))
 
-    // Android: 포그라운드 복귀 시 (1) pending 히스토리 수거 (2) 클립보드 발신
-    void importPendingHistory()
+    // Android: 네트워크 전환 시 WebSocket 즉시 재연결
+    let cleanupNetworkListener: (() => void) | undefined
+    void onNetworkChanged(type => {
+      if (type === 'available') {
+        console.log('[app] network available — restarting subscriptions')
+        restartAllSubscriptions(userPubkey)
+      }
+    }).then(cleanup => { cleanupNetworkListener = cleanup })
+
     const onVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') return
-      void importPendingHistory()
+      if (document.visibilityState !== 'visible') {
+        // 백그라운드 진입: 네이티브에 알려서 수신 알림 활성화
+        void setAppForeground(false)
+        return
+      }
 
-      // 포그라운드 복귀 시 상시 알림 강제 복원 (스와이프로 없어졌을 수 있으므로)
+      // 포그라운드 복귀: 네이티브 알림 억제 + 밀린 이벤트 히스토리 동기화
+      void setAppForeground(true)
+
+      // 포그라운드 복귀 시 상시 알림 강제 복원 + 네이티브 구독 재시작 (스와이프로 없어졌을 수 있으므로)
       if (isAndroid()) {
-        void startForegroundService().catch(err => console.warn('[foreground-service] restart failed:', err))
+        void startForegroundService(writeRelaysRef.current, userPubkey).catch(err => console.warn('[foreground-service] restart failed:', err))
+
+        // 네이티브 구독이 백그라운드에서 수신한 이벤트를 히스토리에 동기화
+        void consumeNativeEvents().then(async (events) => {
+          if (events.length === 0) return
+          console.log(`[app] consuming ${events.length} native event(s) for history`)
+          for (const evt of events) {
+            try {
+              if (await hasHistoryId(evt.id)) continue
+              const plaintext = await getSigner().nip44Decrypt(userPubkey, evt.content)
+              const payload = JSON.parse(plaintext) as ClipboardPayload
+              await appendHistory({ id: evt.id, createdAt: evt.createdAt, payload })
+            } catch (err) {
+              console.warn('[app] native event history sync failed:', err)
+            }
+          }
+        }).catch(err => console.warn('[app] consumeNativeEvents failed:', err))
       }
 
       // 포그라운드 복귀 시 구독 상태 확인 → 죽었으면 전부 재시작
@@ -287,7 +296,10 @@ function App() {
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
-    visibilityCleanupRef.current = () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    visibilityCleanupRef.current = () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      cleanupNetworkListener?.()
+    }
 
     startRelayDiscovery(userPubkey)
     startBlossomDiscovery(userPubkey, writeRelaysRef.current)
@@ -319,6 +331,7 @@ function App() {
     visibilityCleanupRef.current?.()
     clearSigner()
     destroySharedPool()
+    void stopNativeSubscription().catch(() => {})
     await stopForegroundService().catch(() => {})
     await clearAuth()
     setState({ status: 'login' })

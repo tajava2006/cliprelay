@@ -5,12 +5,17 @@
  * Android Foreground Service를 시작/정지한다.
  * 데스크탑에서는 호출해도 아무 일도 일어나지 않는다.
  */
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, addPluginListener } from '@tauri-apps/api/core'
 import { isAndroid } from './detect'
 
-export async function startForegroundService(): Promise<void> {
+export async function startForegroundService(relays?: string[], userPubkey?: string): Promise<void> {
   if (!isAndroid()) return
-  await invoke('plugin:foreground-service|start_service')
+  const args: Record<string, string> = {}
+  if (relays && userPubkey) {
+    args.relaysJson = JSON.stringify(relays)
+    args.userPubkey = userPubkey
+  }
+  await invoke('plugin:foreground-service|start_service', args)
 }
 
 export async function stopForegroundService(): Promise<void> {
@@ -48,4 +53,55 @@ export async function requestNotificationPermission(): Promise<void> {
 export async function requestBatteryExemption(): Promise<void> {
   if (!isAndroid()) return
   await invoke('plugin:foreground-service|request_battery_exemption')
+}
+
+// --- 네이티브 릴레이 구독 ---
+
+export interface NativeEvent {
+  id: string
+  createdAt: number
+  content: string
+}
+
+/** OkHttp 기반 네이티브 릴레이 구독 시작. WebView와 독립적으로 백그라운드에서 동작. */
+export async function startNativeSubscription(relays: string[], userPubkey: string): Promise<void> {
+  if (!isAndroid()) return
+  await invoke('plugin:foreground-service|start_native_subscription', {
+    relaysJson: JSON.stringify(relays),
+    userPubkey,
+  })
+}
+
+/** 네이티브 릴레이 구독 중지. */
+export async function stopNativeSubscription(): Promise<void> {
+  if (!isAndroid()) return
+  await invoke('plugin:foreground-service|stop_native_subscription')
+}
+
+/** 네이티브 구독이 수신한 이벤트를 소비한다. 포그라운드 복귀 시 히스토리 동기화용. */
+export async function consumeNativeEvents(): Promise<NativeEvent[]> {
+  if (!isAndroid()) return []
+  const result = await invoke<{ eventsJson: string }>('plugin:foreground-service|consume_native_events')
+  return JSON.parse(result.eventsJson) as NativeEvent[]
+}
+
+/** 앱 포그라운드/백그라운드 상태를 네이티브에 알린다. 백그라운드일 때만 수신 알림 표시. */
+export async function setAppForeground(foreground: boolean): Promise<void> {
+  if (!isAndroid()) return
+  await invoke('plugin:foreground-service|set_app_foreground', { foreground })
+}
+
+/**
+ * 네트워크 상태 변경 리스너를 등록한다.
+ * Android의 ConnectivityManager.NetworkCallback이 감지한 네트워크 전환을
+ * WebView에 전달하여 WebSocket 즉시 재연결을 트리거한다.
+ */
+export async function onNetworkChanged(callback: (type: 'available' | 'lost') => void): Promise<() => void> {
+  if (!isAndroid()) return () => {}
+  const listener = await addPluginListener<{ type: 'available' | 'lost' }>(
+    'foreground-service',
+    'network-changed',
+    (payload) => callback(payload.type),
+  )
+  return () => { void listener.unregister() }
 }

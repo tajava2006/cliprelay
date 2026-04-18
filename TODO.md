@@ -46,6 +46,40 @@
 
 ---
 
+## Android 서비스 안정성 강화
+
+Amber 앱 아키텍처 참조. 목표: 앱이 명시적으로 끄기 전까지 절대 죽지 않는 상시 가동.
+
+### BootReceiver — 부팅/업데이트 시 자동 시작
+
+- `BroadcastReceiver`로 `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED` 수신
+- 권한: `android.permission.RECEIVE_BOOT_COMPLETED`
+- 수신 시 `startForegroundService()` 호출 → ClipboardSyncService 자동 시작
+- 참조: `Amber/app/src/main/java/com/greenart7c3/nostrsigner/service/BootReceiver.kt`
+
+### AlarmManager.RTC_WAKEUP — 딥슬립 대응
+
+- 서비스 시작을 `AlarmManager.RTC_WAKEUP`으로 스케줄
+- 기기가 딥슬립 상태여도 서비스 시작 보장
+- 참조: `Amber/app/src/main/java/com/greenart7c3/nostrsigner/Amber.kt:372-388`
+
+### NetworkCallback — 네트워크 전환 시 WebSocket 재연결
+
+- `ConnectivityManager.registerDefaultNetworkCallback()` 등록
+- `onAvailable()`: 네트워크 복구 시 WebView에 재연결 이벤트 전달
+- `onCapabilitiesChanged()`: WiFi↔모바일 전환 시 재연결
+- `onLost()`: 연결 끊김 감지
+- 현재 TS의 15초 헬스체크만으로는 네트워크 전환에 느리게 반응 → 네이티브 콜백으로 즉시 대응
+- 참조: `Amber/app/src/main/java/com/greenart7c3/nostrsigner/service/ConnectivityService.kt:27-85`
+
+### 포그라운드 서비스 타입 변경 검토
+
+- 현재: `FOREGROUND_SERVICE_TYPE_DATA_SYNC` — Google Play 심사에서 거부될 수 있음
+- Amber 방식: `FOREGROUND_SERVICE_TYPE_SPECIAL_USE` + property 선언
+- 변경 시 AndroidManifest.xml의 service 선언과 permission 모두 수정 필요
+
+---
+
 ## 검토 중
 
 ### 파일 동기화 스코프 아웃 여부

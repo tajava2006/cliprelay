@@ -3,7 +3,6 @@ package com.hoppe.cliprelay.clipaction
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Context
 import android.util.Base64
 import androidx.core.content.FileProvider
 import app.tauri.annotation.Command
@@ -12,7 +11,6 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
-import org.json.JSONArray
 import java.io.File
 
 @InvokeArg
@@ -164,29 +162,4 @@ class ClipboardActionPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /**
-     * ClipboardActionActivity가 SharedPreferences에 임시 저장한 히스토리를 전부 가져온다.
-     * 읽으면 자동으로 삭제한다.
-     */
-    @Command
-    fun consumePendingHistory(invoke: Invoke) {
-        val prefs = activity.getSharedPreferences("clipboard_action_history", Context.MODE_PRIVATE)
-        val all = prefs.all
-        val items = JSONArray()
-
-        for ((key, value) in all) {
-            if (key.startsWith("pending_") && value is String) {
-                items.put(value)
-            }
-        }
-
-        // 읽은 항목 전부 삭제
-        if (all.isNotEmpty()) {
-            prefs.edit().clear().apply()
-        }
-
-        val result = JSObject()
-        result.put("items", items)
-        invoke.resolve(result)
-    }
 }

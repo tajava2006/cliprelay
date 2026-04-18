@@ -49,16 +49,3 @@ export async function readClipboardImage(): Promise<ClipboardImageResult> {
   return invoke<ClipboardImageResult>('plugin:clipboard-action|read_clipboard_image')
 }
 
-interface PendingHistoryResult {
-  items: string[]  // 각 항목은 ClipboardPayload JSON 문자열
-}
-
-/**
- * ClipboardActionActivity가 SharedPreferences에 임시 저장한 히스토리를 전부 가져온다.
- * 읽으면 자동으로 삭제된다.
- */
-export async function consumePendingHistory(): Promise<string[]> {
-  if (!isAndroid()) return []
-  const result = await invoke<PendingHistoryResult>('plugin:clipboard-action|consume_pending_history')
-  return result.items ?? []
-}

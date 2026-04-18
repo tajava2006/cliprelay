@@ -31,11 +31,6 @@
 
 ## 미결 기능
 
-### GitHub Actions Android 릴리즈 자동화
-- `.github/workflows/release-android.yml`
-- 트리거: `android/v*` 태그 push
-- `tauri android build` → APK 서명 (키스토어를 GitHub Secrets 저장) → GitHub Release draft 업로드
-
 ### Step 10. 설정 화면
 - 파일 동기화 on/off, 최대 파일 크기 설정
 - kind:30078으로 Nostr에 저장 (NIP-44 암호화 + NIP-46 서명)
@@ -50,12 +45,7 @@
 
 Amber 앱 아키텍처 참조. 목표: 앱이 명시적으로 끄기 전까지 절대 죽지 않는 상시 가동.
 
-### BootReceiver — 부팅/업데이트 시 자동 시작
-
-- `BroadcastReceiver`로 `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED` 수신
-- 권한: `android.permission.RECEIVE_BOOT_COMPLETED`
-- 수신 시 `startForegroundService()` 호출 → ClipboardSyncService 자동 시작
-- 참조: `Amber/app/src/main/java/com/greenart7c3/nostrsigner/service/BootReceiver.kt`
+### ~~BootReceiver — 부팅/업데이트 시 자동 시작~~ (스킵 — 명시적 실행만 허용)
 
 ### AlarmManager.RTC_WAKEUP — 딥슬립 대응
 

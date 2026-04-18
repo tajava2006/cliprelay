@@ -4,4 +4,12 @@ permissions = [
   "allow-start-service",
   "allow-stop-service",
   "allow-is-running",
+  "allow-get-permission-status",
+  "allow-request-notification-permission",
+  "allow-request-battery-exemption",
+  "allow-start-native-subscription",
+  "allow-stop-native-subscription",
+  "allow-consume-native-events",
+  "allow-set-app-foreground",
+  "allow-request-receiver-channel-high",
 ]

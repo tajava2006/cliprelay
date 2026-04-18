@@ -44,6 +44,9 @@ const en: Messages = {
   'main.perm.battery.label': 'Battery Optimization',
   'main.perm.battery.desc': 'Required to keep the subscription running in the background.',
   'main.perm.battery.btn': 'Configure',
+  'main.perm.channel.label': 'Heads-Up Notifications',
+  'main.perm.channel.desc': 'Enable pop-up alerts for incoming clipboard — tap without opening the notification shade.',
+  'main.perm.channel.btn': 'Configure',
 
   // History
   'history.title': 'History',
@@ -101,6 +104,9 @@ const ko: Messages = {
   'main.perm.battery.label': '배터리 최적화 해제',
   'main.perm.battery.desc': '백그라운드에서 구독을 끊김 없이 유지하려면 필요합니다.',
   'main.perm.battery.btn': '설정하기',
+  'main.perm.channel.label': '수신 알림 팝업 (권장)',
+  'main.perm.channel.desc': '수신 알림이 화면 위로 떠서 바로 탭할 수 있습니다. 알림창을 내리는 단계를 줄여줍니다.',
+  'main.perm.channel.btn': '설정하기',
 
   'history.title': '히스토리',
   'history.clear': '전체 삭제',
@@ -155,6 +161,9 @@ const ja: Messages = {
   'main.perm.battery.label': 'バッテリー最適化の除外',
   'main.perm.battery.desc': 'バックグラウンドでの購読を維持するために必要です。',
   'main.perm.battery.btn': '設定する',
+  'main.perm.channel.label': '受信通知のポップアップ（推奨）',
+  'main.perm.channel.desc': '受信通知が画面上に浮かび、すぐにタップできます。通知シェードを開くステップが省けます。',
+  'main.perm.channel.btn': '設定する',
 
   'history.title': '履歴',
   'history.clear': '全削除',
@@ -205,6 +214,9 @@ const zh: Messages = {
   'main.perm.battery.label': '关闭电池优化',
   'main.perm.battery.desc': '在后台保持订阅连接所必需。',
   'main.perm.battery.btn': '去设置',
+  'main.perm.channel.label': '接收通知弹窗（推荐）',
+  'main.perm.channel.desc': '接收通知会以弹窗形式显示，可直接点击，无需下拉通知栏。',
+  'main.perm.channel.btn': '去设置',
 
   'history.title': '历史',
   'history.clear': '全部删除',
@@ -255,6 +267,9 @@ const es: Messages = {
   'main.perm.battery.label': 'Optimización de batería',
   'main.perm.battery.desc': 'Necesario para mantener la suscripción activa en segundo plano.',
   'main.perm.battery.btn': 'Configurar',
+  'main.perm.channel.label': 'Notificaciones emergentes (recomendado)',
+  'main.perm.channel.desc': 'Las notificaciones recibidas aparecen como popup y se pueden tocar directamente.',
+  'main.perm.channel.btn': 'Configurar',
 
   'history.title': 'Historial',
   'history.clear': 'Borrar todo',
@@ -305,6 +320,9 @@ const pt: Messages = {
   'main.perm.battery.label': 'Otimização de bateria',
   'main.perm.battery.desc': 'Necessário para manter a assinatura ativa em segundo plano.',
   'main.perm.battery.btn': 'Configurar',
+  'main.perm.channel.label': 'Notificações popup (recomendado)',
+  'main.perm.channel.desc': 'As notificações recebidas aparecem como popup e podem ser tocadas diretamente.',
+  'main.perm.channel.btn': 'Configurar',
 
   'history.title': 'Histórico',
   'history.clear': 'Limpar tudo',
@@ -355,6 +373,9 @@ const hi: Messages = {
   'main.perm.battery.label': 'बैटरी ऑप्टिमाइज़ेशन',
   'main.perm.battery.desc': 'बैकग्राउंड में सदस्यता बनाए रखने के लिए आवश्यक है।',
   'main.perm.battery.btn': 'सेट करें',
+  'main.perm.channel.label': 'पॉप-अप सूचनाएं (अनुशंसित)',
+  'main.perm.channel.desc': 'प्राप्त सूचनाएं सीधे स्क्रीन पर दिखती हैं, नोटिफिकेशन बार खोले बिना टैप करें।',
+  'main.perm.channel.btn': 'सेट करें',
 
   'history.title': 'इतिहास',
   'history.clear': 'सब हटाएं',
@@ -405,6 +426,9 @@ const ar: Messages = {
   'main.perm.battery.label': 'تحسين البطارية',
   'main.perm.battery.desc': 'مطلوب للحفاظ على الاشتراك نشطًا في الخلفية.',
   'main.perm.battery.btn': 'ضبط',
+  'main.perm.channel.label': 'إشعارات منبثقة (مُوصى به)',
+  'main.perm.channel.desc': 'تظهر إشعارات الاستلام كنافذة منبثقة للنقر مباشرة دون فتح لوحة الإشعارات.',
+  'main.perm.channel.btn': 'ضبط',
 
   'history.title': 'السجل',
   'history.clear': 'حذف الكل',
@@ -455,6 +479,9 @@ const fr: Messages = {
   'main.perm.battery.label': 'Optimisation de la batterie',
   'main.perm.battery.desc': 'Nécessaire pour maintenir l\'abonnement actif en arrière-plan.',
   'main.perm.battery.btn': 'Configurer',
+  'main.perm.channel.label': 'Notifications popup (recommandé)',
+  'main.perm.channel.desc': 'Les notifications reçues apparaissent en popup et peuvent être touchées directement.',
+  'main.perm.channel.btn': 'Configurer',
 
   'history.title': 'Historique',
   'history.clear': 'Tout supprimer',
@@ -505,6 +532,9 @@ const de: Messages = {
   'main.perm.battery.label': 'Akkuoptimierung',
   'main.perm.battery.desc': 'Erforderlich, um die Verbindung im Hintergrund aufrechtzuerhalten.',
   'main.perm.battery.btn': 'Konfigurieren',
+  'main.perm.channel.label': 'Popup-Benachrichtigungen (empfohlen)',
+  'main.perm.channel.desc': 'Eingehende Benachrichtigungen erscheinen als Popup und können direkt getippt werden.',
+  'main.perm.channel.btn': 'Konfigurieren',
 
   'history.title': 'Verlauf',
   'history.clear': 'Alle löschen',

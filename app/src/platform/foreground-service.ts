@@ -32,11 +32,12 @@ export async function isForegroundServiceRunning(): Promise<boolean> {
 export interface PermissionStatus {
   notificationGranted: boolean
   batteryExempted: boolean
+  receiverChannelIsHigh: boolean
 }
 
-/** 알림 권한 및 배터리 최적화 예외 여부를 반환한다. */
+/** 알림 권한, 배터리 최적화 예외, 수신 알림 채널 importance 상태를 반환한다. */
 export async function getPermissionStatus(): Promise<PermissionStatus> {
-  if (!isAndroid()) return { notificationGranted: true, batteryExempted: true }
+  if (!isAndroid()) return { notificationGranted: true, batteryExempted: true, receiverChannelIsHigh: true }
   return await invoke<PermissionStatus>('plugin:foreground-service|get_permission_status')
 }
 
@@ -53,6 +54,12 @@ export async function requestNotificationPermission(): Promise<void> {
 export async function requestBatteryExemption(): Promise<void> {
   if (!isAndroid()) return
   await invoke('plugin:foreground-service|request_battery_exemption')
+}
+
+/** 수신 알림 채널 설정 화면으로 이동한다. importance를 High로 올리도록 안내. */
+export async function requestReceiverChannelHigh(): Promise<void> {
+  if (!isAndroid()) return
+  await invoke('plugin:foreground-service|request_receiver_channel_high')
 }
 
 // --- 네이티브 릴레이 구독 ---

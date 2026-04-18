@@ -106,13 +106,15 @@ class ClipboardSyncService : Service() {
 
         private fun ensureReceivedChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val manager = context.getSystemService(NotificationManager::class.java)
+                // 이미 생성된 채널은 importance를 앱에서 변경할 수 없으므로 존재하면 그대로 둔다.
+                if (manager.getNotificationChannel(RECEIVED_CHANNEL_ID) != null) return
                 val channel = NotificationChannel(
                     RECEIVED_CHANNEL_ID,
                     "Clipboard Received",
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_HIGH
                 ).apply { description = "Notifications for received clipboard data" }
-                context.getSystemService(NotificationManager::class.java)
-                    .createNotificationChannel(channel)
+                manager.createNotificationChannel(channel)
             }
         }
     }

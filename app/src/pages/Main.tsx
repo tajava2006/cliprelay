@@ -15,6 +15,7 @@ import {
   getPermissionStatus,
   requestNotificationPermission,
   requestBatteryExemption,
+  requestReceiverChannelHigh,
   type PermissionStatus,
 } from '../platform/foreground-service'
 
@@ -122,7 +123,7 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
       )}
 
       {/* ─── Android 권한 상태 ─── */}
-      {isAndroid() && permissions && (!permissions.notificationGranted || !permissions.batteryExempted) && (
+      {isAndroid() && permissions && (!permissions.notificationGranted || !permissions.batteryExempted || !permissions.receiverChannelIsHigh) && (
         <div style={s.permSection}>
           <h3 style={s.sectionTitle}>{t('main.perm.section')}</h3>
 
@@ -134,7 +135,7 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
               </div>
               <button
                 style={s.permBtn}
-                onClick={() => { void requestNotificationPermission() }}
+                onClick={() => { void requestNotificationPermission().then(() => refreshPermissions()) }}
               >
                 {t('main.perm.notification.btn')}
               </button>
@@ -149,9 +150,24 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
               </div>
               <button
                 style={s.permBtn}
-                onClick={() => { void requestBatteryExemption() }}
+                onClick={() => { void requestBatteryExemption().then(() => refreshPermissions()) }}
               >
                 {t('main.perm.battery.btn')}
+              </button>
+            </div>
+          )}
+
+          {!permissions.receiverChannelIsHigh && (
+            <div style={s.permRow}>
+              <div style={s.permInfo}>
+                <span style={s.permLabel}>{t('main.perm.channel.label')}</span>
+                <span style={s.permDesc}>{t('main.perm.channel.desc')}</span>
+              </div>
+              <button
+                style={s.permBtnOptional}
+                onClick={() => { void requestReceiverChannelHigh().then(() => refreshPermissions()) }}
+              >
+                {t('main.perm.channel.btn')}
               </button>
             </div>
           )}
@@ -371,6 +387,17 @@ const s = {
     background: '#d97706',
     color: '#fff',
     border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+  },
+  permBtnOptional: {
+    flexShrink: 0,
+    padding: '5px 12px',
+    fontSize: 12,
+    fontWeight: 600,
+    background: 'transparent',
+    color: '#b45309',
+    border: '1px solid #d97706',
     borderRadius: 6,
     cursor: 'pointer',
   },

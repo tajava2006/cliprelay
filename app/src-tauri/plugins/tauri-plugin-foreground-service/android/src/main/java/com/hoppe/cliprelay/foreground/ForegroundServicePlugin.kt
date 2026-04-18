@@ -1,7 +1,6 @@
 package com.hoppe.cliprelay.foreground
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.Application
 import android.os.Bundle
 import android.content.Intent
@@ -18,7 +17,6 @@ import android.provider.Settings
 import android.util.Log
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
-import androidx.core.app.ActivityCompat
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -45,7 +43,6 @@ class ForegroundServicePlugin(private val activity: Activity) : Plugin(activity)
 
     companion object {
         private const val TAG = "ForegroundServicePlugin"
-        private const val REQUEST_NOTIFICATION_PERMISSION_CODE = 2001
     }
 
     private var networkCallbackRegistered = false
@@ -184,14 +181,14 @@ class ForegroundServicePlugin(private val activity: Activity) : Plugin(activity)
         invoke.resolve(result)
     }
 
-    /** 알림 권한 및 배터리 최적화 예외 상태를 반환한다. */
+    /** 알림 권한, 배터리 최적화 예외, 수신 알림 채널 importance 상태를 반환한다. */
     @Command
     fun getPermissionStatus(invoke: Invoke) {
         val notificationGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
                 PackageManager.PERMISSION_GRANTED
         } else {
-            true // Android 12 이하는 런타임 알림 권한 불필요
+            true
         }
 
         val batteryExempted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -201,56 +198,49 @@ class ForegroundServicePlugin(private val activity: Activity) : Plugin(activity)
             true
         }
 
+        val receiverChannelIsHigh = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = activity.getSystemService(android.app.NotificationManager::class.java)
+                .getNotificationChannel(ClipboardSyncService.RECEIVED_CHANNEL_ID)
+            ch != null && ch.importance >= android.app.NotificationManager.IMPORTANCE_HIGH
+        } else {
+            true
+        }
+
         val result = JSObject()
         result.put("notificationGranted", notificationGranted)
         result.put("batteryExempted", batteryExempted)
+        result.put("receiverChannelIsHigh", receiverChannelIsHigh)
         invoke.resolve(result)
     }
 
-    /** 알림 권한 시스템 다이얼로그를 요청한다 (Android 13+). */
+    /** 앱 알림 설정 화면으로 이동한다. 돌아오면 invoke resolve. */
     @Command
     fun requestNotificationPermission(invoke: Invoke) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.requestPermissions(
-                activity,
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_NOTIFICATION_PERMISSION_CODE
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+            }
+            startActivityForResult(invoke, intent, "onNotificationPermissionResult")
+        } else {
+            invoke.resolve(JSObject())
         }
+    }
+
+    @ActivityCallback
+    fun onNotificationPermissionResult(invoke: Invoke, result: ActivityResult) {
         invoke.resolve(JSObject())
     }
 
-    /**
-     * 설명 다이얼로그를 보여준 뒤 배터리 최적화 예외 설정창으로 이동한다.
-     * 이미 예외 상태이면 아무 일도 하지 않는다.
-     */
+    /** 배터리 최적화 예외 설정 화면으로 바로 이동한다. 이미 예외이면 아무 일도 하지 않는다. */
     @Command
     fun requestBatteryExemption(invoke: Invoke) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = activity.getSystemService(PowerManager::class.java)
             if (!pm.isIgnoringBatteryOptimizations(activity.packageName)) {
-                activity.runOnUiThread {
-                    AlertDialog.Builder(activity)
-                        .setTitle("Background execution required")
-                        .setMessage(
-                            "To keep the clipboard subscription running without interruption, " +
-                            "battery optimization must be disabled for this app.\n\n" +
-                            "Please select 'Allow' on the next screen."
-                        )
-                        .setPositiveButton("Go to settings") { _, _ ->
-                            val intent = Intent(
-                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                            ).apply {
-                                data = Uri.parse("package:${activity.packageName}")
-                            }
-                            startActivityForResult(invoke, intent, "onBatteryExemptionResult")
-                        }
-                        .setNegativeButton("Later") { _, _ ->
-                            invoke.resolve(JSObject())
-                        }
-                        .setCancelable(false)
-                        .show()
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${activity.packageName}")
                 }
+                startActivityForResult(invoke, intent, "onBatteryExemptionResult")
                 return
             }
         }
@@ -259,6 +249,25 @@ class ForegroundServicePlugin(private val activity: Activity) : Plugin(activity)
 
     @ActivityCallback
     fun onBatteryExemptionResult(invoke: Invoke, result: ActivityResult) {
+        invoke.resolve(JSObject())
+    }
+
+    /** 수신 알림 채널 설정 화면으로 이동한다. 돌아오면 invoke resolve. */
+    @Command
+    fun requestReceiverChannelHigh(invoke: Invoke) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, ClipboardSyncService.RECEIVED_CHANNEL_ID)
+            }
+            startActivityForResult(invoke, intent, "onReceiverChannelResult")
+        } else {
+            invoke.resolve(JSObject())
+        }
+    }
+
+    @ActivityCallback
+    fun onReceiverChannelResult(invoke: Invoke, result: ActivityResult) {
         invoke.resolve(JSObject())
     }
 

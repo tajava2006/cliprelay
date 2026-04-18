@@ -9,9 +9,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from './i18n'
 import { loadAuth, clearAuth } from './store/auth-store'
-import { loadWriteRelays, saveWriteRelays } from './store/relay-store'
-import { loadBlossomServers, saveBlossomServers } from './store/blossom-store'
-import { loadProfile, saveProfile } from './store/profile-store'
+import { loadWriteRelays, saveWriteRelays, clearWriteRelays } from './store/relay-store'
+import { loadBlossomServers, saveBlossomServers, clearBlossomServers } from './store/blossom-store'
+import { loadProfile, saveProfile, clearProfile } from './store/profile-store'
 import { setSigner, clearSigner, getSigner } from './platform/signer'
 import { getSharedPool, destroySharedPool } from './nostr/pool'
 import { startForegroundService, stopForegroundService, onNetworkChanged, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/foreground-service'
@@ -22,7 +22,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { startPlatformClipboardMonitor } from './platform/clipboard'
 import type { ClipboardMonitor } from './clipboard/monitor'
 import { startClipboardSubscription, type ClipboardSubscription } from './nostr/subscribe'
-import { appendHistory, hasHistoryId } from './store/history-store'
+import { appendHistory, hasHistoryId, clearHistory } from './store/history-store'
 import { rgbaToPng } from './blossom/upload'
 import { uploadImage } from './blossom/upload'
 import {
@@ -333,7 +333,13 @@ function App() {
     destroySharedPool()
     void stopNativeSubscription().catch(() => {})
     await stopForegroundService().catch(() => {})
-    await clearAuth()
+    await Promise.all([
+      clearAuth(),
+      clearWriteRelays(),
+      clearBlossomServers(),
+      clearProfile(),
+      clearHistory(),
+    ])
     setState({ status: 'login' })
   }
 

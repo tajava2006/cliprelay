@@ -19,3 +19,8 @@ export async function saveBlossomServers(servers: string[]): Promise<void> {
   const store = await getStore()
   await store.set('servers', servers)
 }
+
+export async function clearBlossomServers(): Promise<void> {
+  const store = await getStore()
+  await store.delete('servers')
+}

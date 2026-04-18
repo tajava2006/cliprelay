@@ -1,0 +1,20 @@
+repository: https://github.com/tajava2006/cliprelay
+
+identifier: com.hoppe.cliprelay
+
+name: ClipRelay
+summary: Clipboard sync across your devices via Nostr
+description: |
+  Automatically syncs clipboard between your devices.
+  All communication goes through Nostr relays, encrypted with NIP-44.
+  Authentication via NIP-46 bunker or Amber.
+
+tags:
+  - nostr
+  - productivity
+  - clipboard
+
+assets:
+  - ClipRelay-*.apk
+
+pubkey: 0aea075b010fb595d6814f5633008e870d77a2c43d4dda1544e8730e00995144

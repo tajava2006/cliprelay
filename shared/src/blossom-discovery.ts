@@ -6,8 +6,7 @@
  */
 import { SimplePool } from 'nostr-tools/pool'
 import type { Event } from 'nostr-tools/core'
-
-const BLOSSOM_SERVER_LIST_KIND = 10063
+import { BLOSSOM_SERVER_LIST_KIND } from './constants.ts'
 
 /** kind:10063 이벤트에서 Blossom 서버 URL 목록 추출 */
 export function parseBlossomServers(event: Event): string[] {

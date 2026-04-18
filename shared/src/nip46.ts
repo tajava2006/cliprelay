@@ -13,19 +13,9 @@
 import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
+import { NIP46_BOOTSTRAP_RELAYS } from './constants.ts'
 
-export { bytesToHex, hexToBytes }
-
-/**
- * NIP-46 핸드쉐이크용 부트스트랩 릴레이.
- * 클립보드 동기화 릴레이(kind:10002)와 무관 — 로그인 handshake 전용.
- * 연결 수립 후에는 사용자의 kind:10002 write 릴레이로 전환한다.
- */
-export const NIP46_BOOTSTRAP_RELAYS = [
-  'wss://relay.nsec.app',
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-]
+export { bytesToHex, hexToBytes, NIP46_BOOTSTRAP_RELAYS }
 
 // ─── 클라이언트 키페어 ────────────────────────────────────────
 

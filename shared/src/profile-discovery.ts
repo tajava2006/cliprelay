@@ -8,6 +8,7 @@ import { SimplePool } from 'nostr-tools/pool'
 import type { Event } from 'nostr-tools/core'
 import { npubEncode } from 'nostr-tools/nip19'
 import type { UserProfile } from './types.ts'
+import { PROFILE_KIND } from './constants.ts'
 
 const STR_FIELDS: (keyof UserProfile)[] = [
   'name', 'display_name', 'picture', 'banner',
@@ -50,7 +51,7 @@ export async function fetchProfile(
   const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
   try {
     const event = await pool.get(writeRelays, {
-      kinds: [0],
+      kinds: [PROFILE_KIND],
       authors: [userPubkey],
     })
     if (!event) return null
@@ -79,7 +80,7 @@ export function subscribeProfile(
 
   const sub = pool.subscribeMany(
     writeRelays,
-    { kinds: [0], authors: [userPubkey] },
+    { kinds: [PROFILE_KIND], authors: [userPubkey] },
     {
       onevent: (event: Event) => {
         if (event.created_at <= latestCreatedAt) return

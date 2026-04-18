@@ -10,7 +10,7 @@
  *   6. FilePayload 반환 (key, iv 포함 → kind:9372에서 NIP-44로 암호화됨)
  */
 import { fetch } from '@tauri-apps/plugin-http'
-import { bytesToHex, type FilePayload } from '@cliprelay/shared'
+import { bytesToHex, BLOSSOM_AUTH_KIND, type FilePayload } from '@cliprelay/shared'
 import { getSigner } from '../platform/signer'
 import { loadAuth } from '../store/auth-store'
 
@@ -87,7 +87,7 @@ export async function uploadImage(
   const signer = getSigner()
   const expiration = Math.floor(Date.now() / 1000) + AUTH_EXPIRY_SECONDS
   const authEvent = await signer.signEvent({
-    kind: 24242,
+    kind: BLOSSOM_AUTH_KIND,
     content: 'Upload Blob',
     created_at: Math.floor(Date.now() / 1000),
     tags: [

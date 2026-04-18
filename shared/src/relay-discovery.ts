@@ -1,20 +1,14 @@
 /**
  * NIP-65 릴레이 디스커버리
  *
- * kind:10002 이벤트에서 write 릴레이 목록을 추출한다.
+ * RELAY_LIST_KIND 이벤트에서 write 릴레이 목록을 추출한다.
  * 클립보드 이벤트 발행/구독에는 write 릴레이만 사용한다.
- *
- * purplepag.es — kind:10002 전용 well-known 릴레이
  */
 import { SimplePool } from 'nostr-tools/pool'
 import type { Event } from 'nostr-tools/core'
+import { RELAY_LIST_KIND, NIP65_DISCOVERY_RELAYS } from './constants.ts'
 
-/** kind:10002 이벤트를 보유한 well-known 디스커버리 릴레이 */
-export const NIP65_DISCOVERY_RELAYS = [
-  'wss://purplepag.es',
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-]
+export { NIP65_DISCOVERY_RELAYS }
 
 // ─── 파싱 ────────────────────────────────────────────────────
 
@@ -46,7 +40,7 @@ export async function fetchWriteRelays(userPubkey: string, externalPool?: Simple
   const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
   try {
     const event = await pool.get(NIP65_DISCOVERY_RELAYS, {
-      kinds: [10002],
+      kinds: [RELAY_LIST_KIND],
       authors: [userPubkey],
     })
     if (!event) return null
@@ -76,7 +70,7 @@ export function subscribeWriteRelays(
 
   const sub = pool.subscribeMany(
     NIP65_DISCOVERY_RELAYS,
-    { kinds: [10002], authors: [userPubkey] },
+    { kinds: [RELAY_LIST_KIND], authors: [userPubkey] },
     {
       onevent: (event: Event) => {
         if (event.created_at <= latestCreatedAt) return

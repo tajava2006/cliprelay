@@ -17,6 +17,7 @@ import { getSharedPool, destroySharedPool } from './nostr/pool'
 import { startForegroundService, stopForegroundService, onNetworkChanged, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/foreground-service'
 import { readClipboardImage } from './platform/clipboard-action'
 import { publishClipboard } from './nostr/publish'
+import { publishDefaultRelayList, publishDefaultBlossomList } from './nostr/setup'
 import { isAndroid } from './platform/detect'
 import { invoke } from '@tauri-apps/api/core'
 import { startPlatformClipboardMonitor } from './platform/clipboard'
@@ -30,6 +31,7 @@ import {
   fetchWriteRelays, subscribeWriteRelays,
   fetchBlossomServers, subscribeBlossomServers,
   fetchProfile, subscribeProfile,
+  DEFAULT_WRITE_RELAYS, DEFAULT_BLOSSOM_SERVERS,
 } from '@cliprelay/shared'
 import type { UserProfile, ClipboardPayload } from '@cliprelay/shared'
 import { Login } from './pages/Login'
@@ -174,6 +176,14 @@ function App() {
         await saveWriteRelays(fetched)
         writeRelaysRef.current = fetched
         setState(prev => prev.status === 'main' ? { ...prev, writeRelays: fetched } : prev)
+      } else {
+        // kind:10002 없는 완전 초보자 — 디폴트 릴레이 자동 발행
+        const ok = await publishDefaultRelayList(DEFAULT_WRITE_RELAYS)
+        if (ok) {
+          await saveWriteRelays(DEFAULT_WRITE_RELAYS)
+          writeRelaysRef.current = DEFAULT_WRITE_RELAYS
+          setState(prev => prev.status === 'main' ? { ...prev, writeRelays: DEFAULT_WRITE_RELAYS } : prev)
+        }
       }
     }
     if (cachedBlossom.length === 0) {
@@ -182,6 +192,14 @@ function App() {
         await saveBlossomServers(fetched)
         blossomServersRef.current = fetched
         setState(prev => prev.status === 'main' ? { ...prev, blossomServers: fetched } : prev)
+      } else if (writeRelaysRef.current.length > 0) {
+        // kind:10063 없는 완전 초보자 — 디폴트 Blossom 서버 자동 발행
+        const ok = await publishDefaultBlossomList(DEFAULT_BLOSSOM_SERVERS, writeRelaysRef.current)
+        if (ok) {
+          await saveBlossomServers(DEFAULT_BLOSSOM_SERVERS)
+          blossomServersRef.current = DEFAULT_BLOSSOM_SERVERS
+          setState(prev => prev.status === 'main' ? { ...prev, blossomServers: DEFAULT_BLOSSOM_SERVERS } : prev)
+        }
       }
     }
     if (!cachedProfile) {

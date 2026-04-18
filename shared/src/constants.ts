@@ -37,3 +37,16 @@ export const NIP65_DISCOVERY_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
 ]
+
+/** kind:10002 미발행 초보자에게 자동으로 설정해줄 디폴트 쓰기 릴레이 */
+export const DEFAULT_WRITE_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.primal.net',
+]
+
+/** kind:10063 미발행 초보자에게 자동으로 설정해줄 디폴트 Blossom 서버 */
+export const DEFAULT_BLOSSOM_SERVERS = [
+  'https://nostr.download',
+  'https://blossom.primal.net',
+]

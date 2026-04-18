@@ -143,8 +143,6 @@ class ForegroundServicePlugin(private val activity: Activity) : Plugin(activity)
 
     @Command
     fun startService(invoke: Invoke) {
-        requestBatteryOptimizationExemption()
-
         val intent = Intent(activity, ClipboardSyncService::class.java)
 
         // Optional: relay/pubkey 데이터가 있으면 Intent extras로 전달
@@ -168,37 +166,6 @@ class ForegroundServicePlugin(private val activity: Activity) : Plugin(activity)
         val result = JSObject()
         result.put("started", true)
         invoke.resolve(result)
-    }
-
-    /**
-     * 배터리 최적화 예외를 요청한다.
-     * 이미 예외 상태면 아무 일도 하지 않는다.
-     * 예외가 아닌 경우 설명 다이얼로그를 먼저 보여준 뒤 설정창으로 이동한다.
-     */
-    private fun requestBatteryOptimizationExemption() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        val pm = activity.getSystemService(PowerManager::class.java)
-        if (pm.isIgnoringBatteryOptimizations(activity.packageName)) return
-
-        activity.runOnUiThread {
-            AlertDialog.Builder(activity)
-                .setTitle("Background execution required")
-                .setMessage(
-                    "To keep the clipboard subscription running without interruption, " +
-                    "battery optimization must be disabled for this app.\n\n" +
-                    "Please select 'Allow' on the next screen."
-                )
-                .setPositiveButton("Go to settings") { _, _ ->
-                    val intent = Intent(
-                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                    ).apply {
-                        data = Uri.parse("package:${activity.packageName}")
-                    }
-                    activity.startActivity(intent)
-                }
-                .setNegativeButton("Later", null)
-                .show()
-        }
     }
 
     @Command

@@ -58,7 +58,6 @@ ClipRelay/                ← pnpm workspace 모노레포
   app/                      ← 데스크탑 + Android 통합 앱 (Tauri v2)
     src/                    ← React + TypeScript (플랫폼 공유)
     src-tauri/              ← Rust 백엔드 + Android Kotlin 플러그인
-  android/                  ← Android 아키텍처 참조 문서
 ```
 
 ## 참고 레포
@@ -69,7 +68,6 @@ ClipRelay/                ← pnpm workspace 모노레포
 
 | 문서 | 참조 시점 |
 |------|----------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 플랫폼별 구조, 데이터 흐름, 서비스 레이어, 기술 스택 선택 이유 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 플랫폼별 구조, 데이터 흐름, Kotlin 플러그인, 기술 스택 |
 | [PROTOCOL.md](PROTOCOL.md) | Nostr 이벤트 kind/tag, 암호화 방식, Blossom 연동 확인 시 |
-| [android/PLAN.md](android/PLAN.md) | Android 전용 구현 상세, Kotlin 플러그인 API 참조 시 |
 | [TODO.md](TODO.md) | 미결 과제, 향후 개선 계획 확인 시 |

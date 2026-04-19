@@ -22,10 +22,7 @@ class WriteImageArgs {
 /**
  * 클립보드 액션 브릿지.
  *
- * ClipboardActionActivity가 읽은 클립보드 데이터를 TS에서 가져갈 수 있게 한다.
- * - getPendingSync(): sync 액션으로 읽은 텍스트 반환 (있으면 자동 clear)
- * - consumePendingCopy(): "복사" 버튼 탭 플래그 확인 + clear (읽으면 자동 소비)
- * - clearPendingSync(): 명시적으로 pending 데이터 삭제
+ * - readClipboardText() / readClipboardImage(): 현재 OS 클립보드 읽기
  * - writeImageToClipboard(): PNG bytes → 캐시 저장 → FileProvider URI → 클립보드 쓰기
  */
 @TauriPlugin
@@ -106,19 +103,6 @@ class ClipboardActionPlugin(private val activity: Activity) : Plugin(activity) {
         } catch (e: Exception) {
             result.put("text", "")
         }
-        invoke.resolve(result)
-    }
-
-    @Command
-    fun consumePendingCopy(invoke: Invoke) {
-        val wasPending = SyncBridge.pendingCopy
-        val notificationId = SyncBridge.pendingNotificationId
-        SyncBridge.pendingCopy = false
-        SyncBridge.pendingNotificationId = -1
-
-        val result = JSObject()
-        result.put("wasPending", wasPending)
-        result.put("notificationId", notificationId)
         invoke.resolve(result)
     }
 

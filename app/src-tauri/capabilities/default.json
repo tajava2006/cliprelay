@@ -18,7 +18,6 @@
     "notification:default",
     "amber:default",
     "foreground-service:default",
-    "notification-android:default",
     "clipboard-action:default",
     "keychain:default"
   ]

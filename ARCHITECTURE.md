@@ -124,8 +124,7 @@ Android 10(API 29)+ 에서 백그라운드 앱은 클립보드에 접근할 수 
 |---------|------------|
 | `plugin-foreground-service` | `startService()`, `stopService()`, `isRunning()`, `startNativeSubscription()`, `stopNativeSubscription()`, `consumeNativeEvents()`, `setAppForeground()`, `getPermissionStatus()`, `requestNotificationPermission()`, `requestBatteryExemption()`, `requestReceiverChannelHigh()` |
 | `plugin-amber` | `isInstalled()`, `getPublicKey()`, `signEvent()`, `nip44Encrypt()`, `nip44Decrypt()` |
-| `plugin-notification-android` | `showReceived(body, encryptedContent, userPubkey)`, `dismiss(id)` |
-| `plugin-clipboard-action` | `readClipboardText()`, `readClipboardImage()`, `writeImageToClipboard()`, `consumePendingCopy()` |
+| `plugin-clipboard-action` | `readClipboardText()`, `readClipboardImage()`, `writeImageToClipboard()` |
 | `plugin-keychain` | `setSecret()`, `getSecret()`, `deleteSecret()` |
 
 #### ClipboardSyncService (Foreground Service)

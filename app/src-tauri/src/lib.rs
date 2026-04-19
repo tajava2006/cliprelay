@@ -15,7 +15,6 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_amber::init())
         .plugin(tauri_plugin_foreground_service::init())
-        .plugin(tauri_plugin_notification_android::init())
         .plugin(tauri_plugin_clipboard_action::init())
         .plugin(tauri_plugin_keychain::init());
 

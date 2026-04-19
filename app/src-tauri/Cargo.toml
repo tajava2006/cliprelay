@@ -28,7 +28,6 @@ tauri-plugin-http = "2.5.7"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-amber = { path = "plugins/tauri-plugin-amber" }
 tauri-plugin-foreground-service = { path = "plugins/tauri-plugin-foreground-service" }
-tauri-plugin-notification-android = { path = "plugins/tauri-plugin-notification-android" }
 tauri-plugin-clipboard-action = { path = "plugins/tauri-plugin-clipboard-action" }
 tauri-plugin-keychain = { path = "plugins/tauri-plugin-keychain" }
 

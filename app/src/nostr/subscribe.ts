@@ -21,6 +21,7 @@ import { sendNotification, isPermissionGranted, requestPermission } from '@tauri
 import { downloadAndDecrypt } from '../blossom/download'
 import { appendHistory, hasHistoryId } from '../store/history-store'
 import { isAndroid } from '../platform/detect'
+import { fingerprintRgba } from '../clipboard/fingerprint'
 
 async function notifyClipboardUpdated(detail: string): Promise<void> {
   try {
@@ -28,11 +29,6 @@ async function notifyClipboardUpdated(detail: string): Promise<void> {
     if (!granted) granted = (await requestPermission()) === 'granted'
     if (granted) sendNotification({ title: 'ClipRelay', body: detail })
   } catch { /* fire-and-forget */ }
-}
-
-/** monitor.ts와 동일한 핑거프린트 형식 */
-function headHex(bytes: Uint8Array, n: number): string {
-  return Array.from(bytes.subarray(0, n), b => b.toString(16).padStart(2, '0')).join('')
 }
 
 export interface ClipboardSubscription {
@@ -83,7 +79,7 @@ async function processDesktopEvent(
       const pngBytes = await downloadAndDecrypt(payload.url, payload.sha256, payload.key, payload.iv)
       const img = await Image.fromBytes(pngBytes)
       const [rgba, size] = await Promise.all([img.rgba(), img.size()])
-      fingerprint = `${size.width}x${size.height}:${headHex(rgba, 32)}`
+      fingerprint = fingerprintRgba(rgba, size.width, size.height)
       onImageWritten(fingerprint, pngBytes)
       await writeClipboardImage(pngBytes)
       toast(t('toast.clipboard.updated'), 'ok')

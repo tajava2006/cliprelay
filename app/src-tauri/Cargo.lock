@@ -513,7 +513,6 @@ dependencies = [
  "tauri-plugin-http",
  "tauri-plugin-keychain",
  "tauri-plugin-notification",
- "tauri-plugin-notification-android",
  "tauri-plugin-opener",
  "tauri-plugin-store",
 ]
@@ -4536,16 +4535,6 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "url",
-]
-
-[[package]]
-name = "tauri-plugin-notification-android"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
 ]
 
 [[package]]

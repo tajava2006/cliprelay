@@ -4,20 +4,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { isAndroid } from './detect'
 
-interface PendingCopyResult {
-  wasPending: boolean
-  notificationId: number
-}
-
-/**
- * "복사" 버튼 탭으로 앱이 올라온 건지 확인한다.
- * 읽으면 자동으로 플래그가 clear된다.
- */
-export async function consumePendingCopy(): Promise<PendingCopyResult> {
-  if (!isAndroid()) return { wasPending: false, notificationId: -1 }
-  return invoke<PendingCopyResult>('plugin:clipboard-action|consume_pending_copy')
-}
-
 /**
  * Android에서 이미지를 클립보드에 쓴다.
  * Tauri clipboard-manager의 writeImage가 Android에서 동작하지 않으므로

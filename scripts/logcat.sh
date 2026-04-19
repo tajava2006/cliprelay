@@ -7,7 +7,6 @@ adb logcat \
   ClipboardSyncService:D \
   NativeRelayClient:D \
   ForegroundServicePlugin:D \
-  NotificationPlugin:D \
   ClipboardActionActivity:D \
   AmberPlugin:D \
   *:S

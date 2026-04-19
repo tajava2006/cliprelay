@@ -12,6 +12,7 @@
 import { readText, readImage } from '@tauri-apps/plugin-clipboard-manager'
 import { toast } from '../toast'
 import { t } from '../i18n'
+import { fingerprintRgba } from './fingerprint'
 
 const POLL_INTERVAL_MS = 500
 const IMAGE_POLL_EVERY_N = 3  // 텍스트 3번 폴링마다 이미지 1번
@@ -20,11 +21,6 @@ export interface ClipboardMonitor {
   stop: () => void
   setLastKnown: (text: string) => void
   setLastKnownImageFingerprint: (fp: string) => void
-}
-
-/** Uint8Array 앞 n바이트를 hex 문자열로 변환 (핑거프린트용) */
-function headHex(bytes: Uint8Array, n: number): string {
-  return Array.from(bytes.subarray(0, n), b => b.toString(16).padStart(2, '0')).join('')
 }
 
 /**
@@ -66,7 +62,7 @@ export function startClipboardMonitor(
       try {
         const img = await readImage()
         const [rgba, size] = await Promise.all([img.rgba(), img.size()])
-        const fp = `${size.width}x${size.height}:${headHex(rgba, 32)}`
+        const fp = fingerprintRgba(rgba, size.width, size.height)
         if (fp !== lastKnownImageFp) {
           lastKnownImageFp = fp
           if (initialized) {

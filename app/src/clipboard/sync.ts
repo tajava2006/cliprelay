@@ -21,6 +21,7 @@ import { startNativeSubscription } from '../platform/android/foreground-service'
 import { publishClipboard } from '../nostr/publish'
 import { rgbaToPng, uploadImage } from '../blossom/upload'
 import type { ClipboardMonitor } from './monitor'
+import { fingerprintPng } from './fingerprint'
 
 const HEALTH_INTERVAL_MS = 15_000
 const RESTART_COOLDOWN_MS = 10_000
@@ -162,7 +163,7 @@ export class SyncEngine {
       },
       (fp, pngBytes) => {
         this.monitor?.setLastKnownImageFingerprint(fp)
-        this.lastSyncedImageFp = `${pngBytes.length}:${Array.from(pngBytes.subarray(0, 64), b => b.toString(16).padStart(2, '0')).join('')}`
+        this.lastSyncedImageFp = fingerprintPng(pngBytes)
       },
     )
   }

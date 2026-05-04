@@ -13,6 +13,7 @@ import { readClipboardImage } from './clipboard-action'
 import { publishClipboard } from '../../nostr/publish'
 import { uploadImage } from '../../blossom/upload'
 import { appendHistory, hasHistoryId } from '../../store/history-store'
+import { fingerprintPng } from '../../clipboard/fingerprint'
 import type { ClipboardPayload } from '@cliprelay/shared'
 import type { SyncEngine } from '../../clipboard/sync'
 
@@ -59,7 +60,7 @@ export async function androidOnForeground(userPubkey: string, sync: SyncEngine):
         const binary = atob(img.base64)
         const pngBytes = new Uint8Array(binary.length)
         for (let i = 0; i < binary.length; i++) pngBytes[i] = binary.charCodeAt(i)
-        const fp = `${pngBytes.length}:${Array.from(pngBytes.subarray(0, 64), b => b.toString(16).padStart(2, '0')).join('')}`
+        const fp = fingerprintPng(pngBytes)
         if (fp !== sync.getLastSyncedImageFp()) {
           sync.setLastSyncedImageFp(fp)
           if (blossomServers.length > 0) {

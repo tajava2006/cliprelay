@@ -12,18 +12,16 @@ import { loadAuth, clearAuth } from './store/auth-store'
 import { loadWriteRelays, saveWriteRelays, clearWriteRelays } from './store/relay-store'
 import { loadBlossomServers, saveBlossomServers, clearBlossomServers } from './store/blossom-store'
 import { loadProfile, saveProfile, clearProfile } from './store/profile-store'
-import { setSigner, clearSigner, getSigner } from './platform/signer'
+import { setSigner, clearSigner } from './platform/signer'
 import { getSharedPool, destroySharedPool } from './nostr/pool'
-import { startForegroundService, stopForegroundService, onNetworkChanged, startNativeSubscription, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/android/foreground-service'
-import { readClipboardImage } from './platform/android/clipboard-action'
+import { startForegroundService, stopForegroundService, onNetworkChanged, startNativeSubscription, stopNativeSubscription, setAppForeground } from './platform/android/foreground-service'
+import { androidOnForeground } from './platform/android/lifecycle'
 import { publishClipboard } from './nostr/publish'
 import { publishDefaultRelayList, publishDefaultBlossomList } from './nostr/setup'
-import { isAndroid } from './platform/detect'
-import { invoke } from '@tauri-apps/api/core'
 import { startPlatformClipboardMonitor } from './platform/clipboard'
 import type { ClipboardMonitor } from './clipboard/monitor'
 import { startClipboardSubscription, type ClipboardSubscription } from './nostr/subscribe'
-import { appendHistory, hasHistoryId, clearHistory } from './store/history-store'
+import { clearHistory } from './store/history-store'
 import { rgbaToPng } from './blossom/upload'
 import { uploadImage } from './blossom/upload'
 import {
@@ -33,7 +31,7 @@ import {
   fetchProfile, subscribeProfile,
   DEFAULT_WRITE_RELAYS, DEFAULT_BLOSSOM_SERVERS,
 } from '@cliprelay/shared'
-import type { UserProfile, ClipboardPayload } from '@cliprelay/shared'
+import type { UserProfile } from '@cliprelay/shared'
 import { Login } from './pages/Login'
 import { History } from './pages/History'
 import { Main } from './pages/Main'
@@ -236,27 +234,15 @@ function App() {
       // 포그라운드 복귀: 네이티브 알림 억제 + 밀린 이벤트 히스토리 동기화
       void setAppForeground(true)
 
-      // 포그라운드 복귀 시 상시 알림 강제 복원 + 네이티브 구독 재시작 (스와이프로 없어졌을 수 있으므로)
-      if (isAndroid()) {
-        void startForegroundService().catch(err => console.warn('[foreground-service] restart failed:', err))
-        void startNativeSubscription(writeRelaysRef.current, userPubkey).catch(err => console.warn('[native-sub] restart failed:', err))
-
-        // 네이티브 구독이 백그라운드에서 수신한 이벤트를 히스토리에 동기화
-        void consumeNativeEvents().then(async (events) => {
-          if (events.length === 0) return
-          console.log(`[app] consuming ${events.length} native event(s) for history`)
-          for (const evt of events) {
-            try {
-              if (await hasHistoryId(evt.id)) continue
-              const plaintext = await getSigner().nip44Decrypt(userPubkey, evt.content)
-              const payload = JSON.parse(plaintext) as ClipboardPayload
-              await appendHistory({ id: evt.id, createdAt: evt.createdAt, payload })
-            } catch (err) {
-              console.warn('[app] native event history sync failed:', err)
-            }
-          }
-        }).catch(err => console.warn('[app] consumeNativeEvents failed:', err))
-      }
+      // Android 라이프사이클 (서비스/구독 재시작 + 백그라운드 이벤트 히스토리 동기화 + 클립보드 발행)
+      void androidOnForeground({
+        userPubkey,
+        writeRelays: writeRelaysRef.current,
+        blossomServers: blossomServersRef.current,
+        lastSyncedTextRef,
+        lastSyncedImageFpRef,
+        isPublishingRef,
+      })
 
       // 포그라운드 복귀 시 구독 상태 확인 → 죽었으면 전부 재시작
       // - 발행 중(Amber 흐름)에는 하지 않음
@@ -268,53 +254,6 @@ function App() {
           console.warn('[app] subscription not alive on foreground — restarting subscriptions')
           restartAllSubscriptions(userPubkey)
         }
-      }
-
-      // Android: 앱이 포그라운드로 올라오면 클립보드를 읽어 변경된 내용이 있으면 발행
-      // Amber 흐름 중 visibilitychange 가 반복 발생하므로 이미 발행 중이면 건너뜀
-      if (isAndroid() && !isPublishingRef.current) {
-        void (async () => {
-          isPublishingRef.current = true
-          try {
-            let published = false
-            // 이미지 먼저 확인
-            try {
-              const img = await readClipboardImage()
-              if (img.hasImage && img.base64) {
-                const binary = atob(img.base64)
-                const pngBytes = new Uint8Array(binary.length)
-                for (let i = 0; i < binary.length; i++) pngBytes[i] = binary.charCodeAt(i)
-                const fp = `${pngBytes.length}:${Array.from(pngBytes.subarray(0, 64), b => b.toString(16).padStart(2, '0')).join('')}`
-                if (fp !== lastSyncedImageFpRef.current) {
-                  lastSyncedImageFpRef.current = fp
-                  const servers = blossomServersRef.current
-                  if (servers.length > 0) {
-                    console.log('[sync] clipboard image changed, publishing…')
-                    const payload = await uploadImage(pngBytes, servers)
-                    await publishClipboard(payload, writeRelaysRef.current)
-                  }
-                }
-                published = true
-              }
-            } catch { /* image read failed, fall through to text */ }
-            // 이미지 없으면 텍스트 확인
-            if (!published) {
-              try {
-                const { text } = await invoke<{ text: string }>('plugin:clipboard-action|read_clipboard_text')
-                if (text && text !== lastSyncedTextRef.current) {
-                  lastSyncedTextRef.current = text
-                  console.log('[sync] clipboard changed, publishing…')
-                  await publishClipboard(
-                    { type: 'text', content: text },
-                    writeRelaysRef.current,
-                  ).catch(err => console.error('[sync] publish failed:', err))
-                }
-              } catch { /* ignore */ }
-            }
-          } finally {
-            isPublishingRef.current = false
-          }
-        })()
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange)

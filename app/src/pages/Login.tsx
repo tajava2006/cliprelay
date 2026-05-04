@@ -50,7 +50,7 @@ export function Login({ onLogin }: LoginProps) {
     if (!isAndroid()) return
     void (async () => {
       try {
-        const { isAmberInstalled } = await import('../platform/amber')
+        const { isAmberInstalled } = await import('../platform/android/amber')
         const installed = await isAmberInstalled()
         setAmberAvailable(installed)
         if (!installed) setMode('bunker')
@@ -65,7 +65,7 @@ export function Login({ onLogin }: LoginProps) {
   const loginWithAmber = useCallback(async () => {
     setPhase({ status: 'connecting' })
     try {
-      const { getAmberPublicKey, AmberSigner } = await import('../platform/amber')
+      const { getAmberPublicKey, AmberSigner } = await import('../platform/android/amber')
       const { pubkey, packageName } = await getAmberPublicKey()
       const signer = new AmberSigner(pubkey)
       setSigner(signer)

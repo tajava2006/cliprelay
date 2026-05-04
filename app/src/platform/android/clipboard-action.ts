@@ -2,7 +2,7 @@
  * Android 클립보드 액션 브릿지
  */
 import { invoke } from '@tauri-apps/api/core'
-import { isAndroid } from './detect'
+import { isAndroid } from '../detect'
 
 /**
  * Android에서 이미지를 클립보드에 쓴다.

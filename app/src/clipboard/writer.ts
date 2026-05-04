@@ -18,7 +18,7 @@ export async function writeClipboardText(text: string): Promise<void> {
  */
 export async function writeClipboardImage(pngBytes: Uint8Array): Promise<void> {
   if (isAndroid()) {
-    const { writeImageToClipboardAndroid } = await import('../platform/clipboard-action')
+    const { writeImageToClipboardAndroid } = await import('../platform/android/clipboard-action')
     await writeImageToClipboardAndroid(pngBytes)
     return
   }

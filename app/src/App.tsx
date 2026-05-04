@@ -14,8 +14,8 @@ import { loadBlossomServers, saveBlossomServers, clearBlossomServers } from './s
 import { loadProfile, saveProfile, clearProfile } from './store/profile-store'
 import { setSigner, clearSigner, getSigner } from './platform/signer'
 import { getSharedPool, destroySharedPool } from './nostr/pool'
-import { startForegroundService, stopForegroundService, onNetworkChanged, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/foreground-service'
-import { readClipboardImage } from './platform/clipboard-action'
+import { startForegroundService, stopForegroundService, onNetworkChanged, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/android/foreground-service'
+import { readClipboardImage } from './platform/android/clipboard-action'
 import { publishClipboard } from './nostr/publish'
 import { publishDefaultRelayList, publishDefaultBlossomList } from './nostr/setup'
 import { isAndroid } from './platform/detect'
@@ -372,7 +372,7 @@ function App() {
       }
       try {
         if (auth.signerType === 'amber') {
-          const { AmberSigner } = await import('./platform/amber')
+          const { AmberSigner } = await import('./platform/android/amber')
           if (cancelled) return
           setSigner(new AmberSigner(auth.userPubkey, auth.amberPackage ?? ''))
         } else {

@@ -17,7 +17,7 @@ import {
   requestBatteryExemption,
   requestReceiverChannelHigh,
   type PermissionStatus,
-} from '../platform/foreground-service'
+} from '../platform/android/foreground-service'
 
 type ConnStatus = 'checking' | 'ok' | 'error'
 

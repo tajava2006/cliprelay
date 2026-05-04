@@ -10,7 +10,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { EventTemplate, VerifiedEvent } from 'nostr-tools/pure'
 import { decode as decodeBech32 } from 'nostr-tools/nip19'
-import type { UniversalSigner } from './signer'
+import type { UniversalSigner } from '../signer'
 
 /** npub/hex 어느 쪽이든 hex로 정규화 */
 function toHex(pubkey: string): string {

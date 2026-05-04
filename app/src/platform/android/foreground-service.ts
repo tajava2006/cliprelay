@@ -6,7 +6,7 @@
  * 데스크탑에서는 호출해도 아무 일도 일어나지 않는다.
  */
 import { invoke, addPluginListener } from '@tauri-apps/api/core'
-import { isAndroid } from './detect'
+import { isAndroid } from '../detect'
 
 export async function startForegroundService(relays?: string[], userPubkey?: string): Promise<void> {
   if (!isAndroid()) return

@@ -14,7 +14,7 @@ import { loadBlossomServers, saveBlossomServers, clearBlossomServers } from './s
 import { loadProfile, saveProfile, clearProfile } from './store/profile-store'
 import { setSigner, clearSigner, getSigner } from './platform/signer'
 import { getSharedPool, destroySharedPool } from './nostr/pool'
-import { startForegroundService, stopForegroundService, onNetworkChanged, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/android/foreground-service'
+import { startForegroundService, stopForegroundService, onNetworkChanged, startNativeSubscription, stopNativeSubscription, consumeNativeEvents, setAppForeground } from './platform/android/foreground-service'
 import { readClipboardImage } from './platform/android/clipboard-action'
 import { publishClipboard } from './nostr/publish'
 import { publishDefaultRelayList, publishDefaultBlossomList } from './nostr/setup'
@@ -97,8 +97,8 @@ function App() {
       startBlossomDiscovery(userPubkey, relays)
       startProfileDiscovery(userPubkey, relays)
       restartClipboardSubscription(userPubkey)
-      // Android: 네이티브 OkHttp 구독도 새 릴레이로 재시작 (startService Intent 경유)
-      void startForegroundService(relays, userPubkey).catch(err => console.warn('[native-sub] relay change restart failed:', err))
+      // Android: 네이티브 OkHttp 구독을 새 릴레이로 재시작
+      void startNativeSubscription(relays, userPubkey).catch(err => console.warn('[native-sub] relay change restart failed:', err))
     }, getSharedPool())
   }
 
@@ -210,9 +210,12 @@ function App() {
       }
     }
 
-    // Android: Foreground Service 시작 + 네이티브 릴레이 구독 (캐시된 릴레이로 즉시)
-    void startForegroundService(writeRelaysRef.current.length > 0 ? writeRelaysRef.current : undefined, writeRelaysRef.current.length > 0 ? userPubkey : undefined)
-      .catch(err => console.warn('[foreground-service] start failed:', err))
+    // Android: Foreground Service 시작 + 네이티브 릴레이 구독 (캐시된 릴레이가 있으면)
+    void startForegroundService().catch(err => console.warn('[foreground-service] start failed:', err))
+    if (writeRelaysRef.current.length > 0) {
+      void startNativeSubscription(writeRelaysRef.current, userPubkey)
+        .catch(err => console.warn('[native-sub] start failed:', err))
+    }
 
     // Android: 네트워크 전환 시 WebSocket 즉시 재연결
     let cleanupNetworkListener: (() => void) | undefined
@@ -235,7 +238,8 @@ function App() {
 
       // 포그라운드 복귀 시 상시 알림 강제 복원 + 네이티브 구독 재시작 (스와이프로 없어졌을 수 있으므로)
       if (isAndroid()) {
-        void startForegroundService(writeRelaysRef.current, userPubkey).catch(err => console.warn('[foreground-service] restart failed:', err))
+        void startForegroundService().catch(err => console.warn('[foreground-service] restart failed:', err))
+        void startNativeSubscription(writeRelaysRef.current, userPubkey).catch(err => console.warn('[native-sub] restart failed:', err))
 
         // 네이티브 구독이 백그라운드에서 수신한 이벤트를 히스토리에 동기화
         void consumeNativeEvents().then(async (events) => {

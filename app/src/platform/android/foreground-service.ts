@@ -8,14 +8,10 @@
 import { invoke, addPluginListener } from '@tauri-apps/api/core'
 import { isAndroid } from '../detect'
 
-export async function startForegroundService(relays?: string[], userPubkey?: string): Promise<void> {
+/** Foreground Service만 시작한다. 네이티브 구독을 켜려면 startNativeSubscription을 따로 부른다. */
+export async function startForegroundService(): Promise<void> {
   if (!isAndroid()) return
-  const args: Record<string, string> = {}
-  if (relays && userPubkey) {
-    args.relaysJson = JSON.stringify(relays)
-    args.userPubkey = userPubkey
-  }
-  await invoke('plugin:foreground-service|start_service', args)
+  await invoke('plugin:foreground-service|start_service')
 }
 
 export async function stopForegroundService(): Promise<void> {

@@ -3,7 +3,7 @@
  *
  * 마운트 시 Tauri Store에서 auth 로드:
  *   - 없으면 → Login 화면
- *   - 있으면 → BunkerSigner 복원 → 릴레이/Blossom 디스커버리 → 모니터 시작 → 메인 화면
+ *   - 있으면 → Signer 복원 → 캐시·네트워크 디스커버리 → SyncEngine 시작 → 메인 화면
  *   - 복원 실패 시 → auth 삭제 후 Login 화면
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -13,22 +13,17 @@ import { loadWriteRelays, saveWriteRelays, clearWriteRelays } from './store/rela
 import { loadBlossomServers, saveBlossomServers, clearBlossomServers } from './store/blossom-store'
 import { loadProfile, saveProfile, clearProfile } from './store/profile-store'
 import { setSigner, clearSigner } from './platform/signer'
-import { getSharedPool, destroySharedPool } from './nostr/pool'
+import { destroySharedPool, getSharedPool } from './nostr/pool'
 import { startForegroundService, stopForegroundService, onNetworkChanged, startNativeSubscription, stopNativeSubscription, setAppForeground } from './platform/android/foreground-service'
 import { androidOnForeground } from './platform/android/lifecycle'
-import { publishClipboard } from './nostr/publish'
 import { publishDefaultRelayList, publishDefaultBlossomList } from './nostr/setup'
-import { startPlatformClipboardMonitor } from './platform/clipboard'
-import type { ClipboardMonitor } from './clipboard/monitor'
-import { startClipboardSubscription, type ClipboardSubscription } from './nostr/subscribe'
 import { clearHistory } from './store/history-store'
-import { rgbaToPng } from './blossom/upload'
-import { uploadImage } from './blossom/upload'
+import { SyncEngine } from './clipboard/sync'
 import {
   restoreSigner,
-  fetchWriteRelays, subscribeWriteRelays,
-  fetchBlossomServers, subscribeBlossomServers,
-  fetchProfile, subscribeProfile,
+  fetchWriteRelays,
+  fetchBlossomServers,
+  fetchProfile,
   DEFAULT_WRITE_RELAYS, DEFAULT_BLOSSOM_SERVERS,
 } from '@cliprelay/shared'
 import type { UserProfile } from '@cliprelay/shared'
@@ -45,115 +40,13 @@ type AppState =
 function App() {
   const [state, setState] = useState<AppState>({ status: 'loading' })
   const [showHistory, setShowHistory] = useState(false)
-  const relaySubCleanupRef = useRef<(() => void) | null>(null)
-  const blossomSubCleanupRef = useRef<(() => void) | null>(null)
-  const profileSubCleanupRef = useRef<(() => void) | null>(null)
-  const clipboardSubRef = useRef<ClipboardSubscription | null>(null)
-  const monitorRef = useRef<ClipboardMonitor | null>(null)
-  const writeRelaysRef = useRef<string[]>([])
-  const blossomServersRef = useRef<string[]>([])
-  const lastSyncedTextRef = useRef<string>('')
-  const lastSyncedImageFpRef = useRef<string>('')
+  const syncRef = useRef<SyncEngine | null>(null)
   const visibilityCleanupRef = useRef<(() => void) | null>(null)
-  const healthCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const isPublishingRef = useRef(false)
-  const lastSubRestartRef = useRef(0)
 
   const getRelayStatus = useCallback(
-    () => clipboardSubRef.current?.getRelayStatus() ?? Promise.resolve({}),
+    () => syncRef.current?.getRelayStatus() ?? Promise.resolve({}),
     [],
   )
-
-  const startBlossomDiscovery = (userPubkey: string, writeRelays: string[]) => {
-    blossomSubCleanupRef.current?.()
-    blossomSubCleanupRef.current = subscribeBlossomServers(userPubkey, writeRelays, servers => {
-      void saveBlossomServers(servers)
-      blossomServersRef.current = servers
-      setState(prev => prev.status === 'main' ? { ...prev, blossomServers: servers } : prev)
-    }, getSharedPool())
-  }
-
-  const startProfileDiscovery = (userPubkey: string, writeRelays: string[]) => {
-    profileSubCleanupRef.current?.()
-    profileSubCleanupRef.current = subscribeProfile(userPubkey, writeRelays, profile => {
-      void saveProfile(profile)
-      setState(prev => prev.status === 'main' ? { ...prev, profile } : prev)
-    }, getSharedPool())
-  }
-
-  const startRelayDiscovery = (userPubkey: string) => {
-    relaySubCleanupRef.current?.()
-    relaySubCleanupRef.current = subscribeWriteRelays(userPubkey, relays => {
-      void saveWriteRelays(relays)
-      writeRelaysRef.current = relays
-      setState(prev => {
-        if (prev.status !== 'main') return prev
-        if (prev.writeRelays.length === relays.length && prev.writeRelays.every((r, i) => r === relays[i])) return prev
-        return { ...prev, writeRelays: relays }
-      })
-      // write 릴레이 변경 시 Blossom·프로필·클립보드 구독도 새 릴레이로 재생성
-      startBlossomDiscovery(userPubkey, relays)
-      startProfileDiscovery(userPubkey, relays)
-      restartClipboardSubscription(userPubkey)
-      // Android: 네이티브 OkHttp 구독을 새 릴레이로 재시작
-      void startNativeSubscription(relays, userPubkey).catch(err => console.warn('[native-sub] relay change restart failed:', err))
-    }, getSharedPool())
-  }
-
-  /** 클립보드 구독만 재시작 (릴레이 변경 시 또는 구독 복구 시) */
-  const restartClipboardSubscription = (userPubkey: string) => {
-    clipboardSubRef.current?.close()
-    clipboardSubRef.current = startClipboardSubscription(
-      userPubkey,
-      writeRelaysRef.current,
-      text => { monitorRef.current?.setLastKnown(text); lastSyncedTextRef.current = text },
-      (fp, pngBytes) => {
-        monitorRef.current?.setLastKnownImageFingerprint(fp)
-        lastSyncedImageFpRef.current = `${pngBytes.length}:${Array.from(pngBytes.subarray(0, 64), b => b.toString(16).padStart(2, '0')).join('')}`
-      },
-    )
-  }
-
-  /** 모든 구독을 재시작 (포그라운드 복귀 시 연결이 죽었을 경우 대비) */
-  const restartAllSubscriptions = (userPubkey: string) => {
-    console.log('[app] restarting all subscriptions')
-    startRelayDiscovery(userPubkey)
-    startBlossomDiscovery(userPubkey, writeRelaysRef.current)
-    startProfileDiscovery(userPubkey, writeRelaysRef.current)
-    restartClipboardSubscription(userPubkey)
-  }
-
-  const startMonitor = async (userPubkey: string) => {
-    monitorRef.current?.stop()
-    monitorRef.current = await startPlatformClipboardMonitor(
-      // 텍스트 변경
-      (text: string) => {
-        void publishClipboard(
-          { type: 'text', content: text },
-          writeRelaysRef.current,
-        ).catch(err => console.error('[monitor] text publish failed:', err))
-      },
-      // 이미지 변경
-      (rgba: Uint8Array, width: number, height: number) => {
-        void (async () => {
-          const servers = blossomServersRef.current
-          if (servers.length === 0) {
-            console.warn('[monitor] no Blossom servers — skipping image publish')
-            return
-          }
-          try {
-            const pngBytes = await rgbaToPng(rgba, width, height)
-            const payload = await uploadImage(pngBytes, servers)
-            await publishClipboard(payload, writeRelaysRef.current)
-          } catch (err) {
-            console.error('[monitor] image publish failed:', err)
-          }
-        })()
-      },
-    )
-    // 수신한 텍스트를 클립보드에 썼을 때 재발행 루프 방지
-    restartClipboardSubscription(userPubkey)
-  }
 
   const enterMain = async (userPubkey: string) => {
     // 캐시된 릴레이/서버 즉시 로드
@@ -162,56 +55,66 @@ function App() {
       loadBlossomServers(),
       loadProfile(),
     ])
-    writeRelaysRef.current = cachedRelays
-    blossomServersRef.current = cachedBlossom
-    setState({ status: 'main', userPubkey, writeRelays: cachedRelays, blossomServers: cachedBlossom, profile: cachedProfile })
+    let writeRelays = cachedRelays
+    let blossomServers = cachedBlossom
+    setState({ status: 'main', userPubkey, writeRelays, blossomServers, profile: cachedProfile })
 
     // 캐시 없으면 네트워크에서 즉시 fetch
     const pool = getSharedPool()
-    if (cachedRelays.length === 0) {
+    if (writeRelays.length === 0) {
       const fetched = await fetchWriteRelays(userPubkey, pool)
       if (fetched) {
         await saveWriteRelays(fetched)
-        writeRelaysRef.current = fetched
-        setState(prev => prev.status === 'main' ? { ...prev, writeRelays: fetched } : prev)
+        writeRelays = fetched
       } else {
         // kind:10002 없는 완전 초보자 — 디폴트 릴레이 자동 발행
         const ok = await publishDefaultRelayList(DEFAULT_WRITE_RELAYS)
         if (ok) {
           await saveWriteRelays(DEFAULT_WRITE_RELAYS)
-          writeRelaysRef.current = DEFAULT_WRITE_RELAYS
-          setState(prev => prev.status === 'main' ? { ...prev, writeRelays: DEFAULT_WRITE_RELAYS } : prev)
+          writeRelays = DEFAULT_WRITE_RELAYS
         }
       }
+      if (writeRelays.length > 0) setState(prev => prev.status === 'main' ? { ...prev, writeRelays } : prev)
     }
-    if (cachedBlossom.length === 0) {
-      const fetched = await fetchBlossomServers(userPubkey, writeRelaysRef.current, pool)
+    if (blossomServers.length === 0) {
+      const fetched = await fetchBlossomServers(userPubkey, writeRelays, pool)
       if (fetched) {
         await saveBlossomServers(fetched)
-        blossomServersRef.current = fetched
-        setState(prev => prev.status === 'main' ? { ...prev, blossomServers: fetched } : prev)
-      } else if (writeRelaysRef.current.length > 0) {
+        blossomServers = fetched
+      } else if (writeRelays.length > 0) {
         // kind:10063 없는 완전 초보자 — 디폴트 Blossom 서버 자동 발행
-        const ok = await publishDefaultBlossomList(DEFAULT_BLOSSOM_SERVERS, writeRelaysRef.current)
+        const ok = await publishDefaultBlossomList(DEFAULT_BLOSSOM_SERVERS, writeRelays)
         if (ok) {
           await saveBlossomServers(DEFAULT_BLOSSOM_SERVERS)
-          blossomServersRef.current = DEFAULT_BLOSSOM_SERVERS
-          setState(prev => prev.status === 'main' ? { ...prev, blossomServers: DEFAULT_BLOSSOM_SERVERS } : prev)
+          blossomServers = DEFAULT_BLOSSOM_SERVERS
         }
       }
+      if (blossomServers.length > 0) setState(prev => prev.status === 'main' ? { ...prev, blossomServers } : prev)
     }
     if (!cachedProfile) {
-      const fetched = await fetchProfile(userPubkey, writeRelaysRef.current, pool)
+      const fetched = await fetchProfile(userPubkey, writeRelays, pool)
       if (fetched) {
         await saveProfile(fetched)
         setState(prev => prev.status === 'main' ? { ...prev, profile: fetched } : prev)
       }
     }
 
+    // SyncEngine 시작 (디스커버리·구독·모니터·헬스체크 모두)
+    const sync = new SyncEngine({
+      userPubkey,
+      writeRelays,
+      blossomServers,
+      onWriteRelaysChange: relays => setState(prev => prev.status === 'main' ? { ...prev, writeRelays: relays } : prev),
+      onBlossomServersChange: servers => setState(prev => prev.status === 'main' ? { ...prev, blossomServers: servers } : prev),
+      onProfileChange: profile => setState(prev => prev.status === 'main' ? { ...prev, profile } : prev),
+    })
+    syncRef.current = sync
+    void sync.start()
+
     // Android: Foreground Service 시작 + 네이티브 릴레이 구독 (캐시된 릴레이가 있으면)
     void startForegroundService().catch(err => console.warn('[foreground-service] start failed:', err))
-    if (writeRelaysRef.current.length > 0) {
-      void startNativeSubscription(writeRelaysRef.current, userPubkey)
+    if (writeRelays.length > 0) {
+      void startNativeSubscription(writeRelays, userPubkey)
         .catch(err => console.warn('[native-sub] start failed:', err))
     }
 
@@ -220,7 +123,7 @@ function App() {
     void onNetworkChanged(type => {
       if (type === 'available') {
         console.log('[app] network available — restarting subscriptions')
-        restartAllSubscriptions(userPubkey)
+        sync.restartAll()
       }
     }).then(cleanup => { cleanupNetworkListener = cleanup })
 
@@ -231,65 +134,25 @@ function App() {
         return
       }
 
-      // 포그라운드 복귀: 네이티브 알림 억제 + 밀린 이벤트 히스토리 동기화
+      // 포그라운드 복귀: 네이티브 알림 억제
       void setAppForeground(true)
 
       // Android 라이프사이클 (서비스/구독 재시작 + 백그라운드 이벤트 히스토리 동기화 + 클립보드 발행)
-      void androidOnForeground({
-        userPubkey,
-        writeRelays: writeRelaysRef.current,
-        blossomServers: blossomServersRef.current,
-        lastSyncedTextRef,
-        lastSyncedImageFpRef,
-        isPublishingRef,
-      })
+      void androidOnForeground(userPubkey, sync)
 
-      // 포그라운드 복귀 시 구독 상태 확인 → 죽었으면 전부 재시작
-      // - 발행 중(Amber 흐름)에는 하지 않음
-      // - 10초 쿨다운: 새 구독이 EOSE를 받기 전에 또 재시작하는 cascade 방지
-      if (!clipboardSubRef.current?.isAlive() && !isPublishingRef.current) {
-        const now = Date.now()
-        if (now - lastSubRestartRef.current > 10_000) {
-          lastSubRestartRef.current = now
-          console.warn('[app] subscription not alive on foreground — restarting subscriptions')
-          restartAllSubscriptions(userPubkey)
-        }
-      }
+      // 구독 상태 확인 → 죽었으면 전부 재시작 (쿨다운 적용)
+      sync.maybeRestartIfDead()
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     visibilityCleanupRef.current = () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       cleanupNetworkListener?.()
     }
-
-    startRelayDiscovery(userPubkey)
-    startBlossomDiscovery(userPubkey, writeRelaysRef.current)
-    startProfileDiscovery(userPubkey, writeRelaysRef.current)
-    startMonitor(userPubkey)
-
-    // 15초 주기 헬스체크 — EOSE를 받지 못했거나 CLOSED된 경우 전체 구독 재시작
-    // 발행 중이거나 10초 쿨다운 안이면 건너뜀 (visibilitychange와 동일한 쿨다운 공유)
-    if (healthCheckRef.current) clearInterval(healthCheckRef.current)
-    healthCheckRef.current = setInterval(() => {
-      if (!clipboardSubRef.current?.isAlive() && !isPublishingRef.current) {
-        const now = Date.now()
-        if (now - lastSubRestartRef.current > 10_000) {
-          lastSubRestartRef.current = now
-          console.warn('[health] subscription not alive — restarting all subscriptions')
-          restartAllSubscriptions(userPubkey)
-        }
-      }
-    }, 15_000)
   }
 
   const logout = async () => {
-    if (healthCheckRef.current) { clearInterval(healthCheckRef.current); healthCheckRef.current = null }
-    relaySubCleanupRef.current?.()
-    blossomSubCleanupRef.current?.()
-    profileSubCleanupRef.current?.()
-    clipboardSubRef.current?.close()
-    monitorRef.current?.stop()
-    visibilityCleanupRef.current?.()
+    syncRef.current?.stop(); syncRef.current = null
+    visibilityCleanupRef.current?.(); visibilityCleanupRef.current = null
     clearSigner()
     destroySharedPool()
     void stopNativeSubscription().catch(() => {})
@@ -333,12 +196,7 @@ function App() {
 
     return () => {
       cancelled = true
-      if (healthCheckRef.current) clearInterval(healthCheckRef.current)
-      relaySubCleanupRef.current?.()
-      blossomSubCleanupRef.current?.()
-      profileSubCleanupRef.current?.()
-      clipboardSubRef.current?.close()
-      monitorRef.current?.stop()
+      syncRef.current?.stop()
       visibilityCleanupRef.current?.()
     }
   }, [])
@@ -365,8 +223,8 @@ function App() {
     page = (
       <History
         onBack={() => setShowHistory(false)}
-        setLastKnown={text => monitorRef.current?.setLastKnown(text)}
-        setLastKnownImageFingerprint={fp => monitorRef.current?.setLastKnownImageFingerprint(fp)}
+        setLastKnown={text => syncRef.current?.setMonitorLastKnownText(text)}
+        setLastKnownImageFingerprint={fp => syncRef.current?.setMonitorLastKnownImageFingerprint(fp)}
       />
     )
   } else {

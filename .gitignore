@@ -4,6 +4,8 @@ nostr-tools
 /blossom
 /Amber
 
+.env
+
 # ai
 .serena
 .claude

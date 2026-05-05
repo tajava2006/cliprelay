@@ -20,6 +20,8 @@ pub fn run() {
 
     #[cfg(desktop)]
     let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // macOS: 독 아이콘 숨김 (트레이 전용 앱)
             #[cfg(target_os = "macos")]

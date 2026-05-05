@@ -1,5 +1,20 @@
 name: Release Desktop
 
+# 자동 업데이트 시그닝 키 최초 1회 세팅:
+#
+#   1) 로컬에서 키페어 생성:
+#        cd app && pnpm tauri signer generate -w ~/.tauri/cliprelay.key
+#
+#   2) 출력된 public key 를 app/src-tauri/tauri.conf.json 의
+#      plugins.updater.pubkey 값으로 붙여넣기 (커밋).
+#
+#   3) GitHub repo Settings → Secrets and variables → Actions 에 추가:
+#        - TAURI_SIGNING_PRIVATE_KEY           = ~/.tauri/cliprelay.key 의 내용 전체
+#        - TAURI_SIGNING_PRIVATE_KEY_PASSWORD  = 키 생성 시 입력한 패스워드 (없으면 빈 값)
+#
+#   4) 첫 릴리즈 후 GitHub 의 Releases 페이지에서 "draft" 를 publish 해야
+#      releases/latest/download/latest.json 가 활성화됨.
+
 on:
   push:
     tags:
@@ -83,6 +98,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           args: --target ${{ matrix.target }}
@@ -91,3 +108,4 @@ jobs:
           releaseBody: 'See the assets below to download for your platform.'
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: true

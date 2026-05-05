@@ -31,6 +31,7 @@ import { Login } from './pages/Login'
 import { History } from './pages/History'
 import { Main } from './pages/Main'
 import { ToastContainer } from './components/Toast'
+import { UpdateBanner } from './components/UpdateBanner'
 
 type AppState =
   | { status: 'loading' }
@@ -245,6 +246,7 @@ function App() {
   return (
     <>
       {page}
+      <UpdateBanner />
       <ToastContainer />
     </>
   )

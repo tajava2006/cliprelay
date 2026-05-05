@@ -71,6 +71,14 @@ const en: Messages = {
 
   // Notification (Android)
   'notification.received.tap': 'Clipboard event received. Tap to copy.',
+
+  // Update (Desktop)
+  'update.available': 'New version available',
+  'update.download': 'Install now',
+  'update.later': 'Later',
+  'update.downloading': 'Downloading…',
+  'update.installing': 'Installing…',
+  'update.failed': 'Update failed',
 }
 
 const ko: Messages = {
@@ -128,6 +136,13 @@ const ko: Messages = {
   'toast.clipboard.updated': '클립보드 갱신 완료',
 
   'notification.received.tap': '클립보드 이벤트를 수신했습니다. 탭하여 복사하세요.',
+
+  'update.available': '새 버전 사용 가능',
+  'update.download': '지금 설치',
+  'update.later': '나중에',
+  'update.downloading': '다운로드 중…',
+  'update.installing': '설치 중…',
+  'update.failed': '업데이트 실패',
 }
 
 const ja: Messages = {

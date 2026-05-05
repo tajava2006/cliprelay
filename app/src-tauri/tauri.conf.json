@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ClipRelay",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "identifier": "com.hoppe.cliprelay",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,6 +37,16 @@
     ]
   },
   "plugins": {
-    "store": null
+    "store": null,
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/tajava2006/cliprelay/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5OTc5NjZDRDlDN0I2QkEKUldTNnRzZlpiSmFYcVFFdXkrRlNXV0pucmNPQ0w4eWx2RU9Qc25RQzZrNDhXVjJCS1I2RFQ2TUsK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

@@ -108,4 +108,70 @@ jobs:
           releaseBody: 'See the assets below to download for your platform.'
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
+          # 개별 job에서 latest.json 올리지 않음 — merge-updater-json job에서 통합 생성
+          includeUpdaterJson: false
+
+  merge-updater-json:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Generate merged latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p /tmp/assets
+          gh release download "$TAG" --repo "$REPO" --dir /tmp/assets --pattern "*.sig" 2>/dev/null || true
+          ls /tmp/assets/
+
+          python3 - <<'PYEOF'
+          import json, os, glob, re
+
+          assets_dir = "/tmp/assets"
+          tag        = os.environ["TAG"]
+          repo       = os.environ["REPO"]
+          # "desktop/v1.2.3" → "1.2.3"
+          version    = re.sub(r"^desktop/v", "", tag)
+          base_url   = f"https://github.com/{repo}/releases/download/{tag}"
+
+          # Tauri 번들 파일명 패턴 → Tauri updater platform 키 매핑
+          PLATFORM_MAP = [
+              (r"_aarch64\.app\.tar\.gz$",  "darwin-aarch64"),
+              (r"_x64\.app\.tar\.gz$",      "darwin-x86_64"),
+              (r"_x86_64\.AppImage$",       "linux-x86_64"),
+              (r"_x64-setup\.exe$",         "windows-x86_64"),
+              (r"_x86_64-setup\.exe$",      "windows-x86_64"),
+          ]
+
+          platforms = {}
+          for sig_path in glob.glob(f"{assets_dir}/*.sig"):
+              artifact = os.path.basename(sig_path[:-4])  # .sig 제거
+              with open(sig_path) as f:
+                  signature = f.read().strip()
+              for pattern, platform_key in PLATFORM_MAP:
+                  if re.search(pattern, artifact):
+                      platforms[platform_key] = {
+                          "signature": signature,
+                          "url": f"{base_url}/{artifact}",
+                      }
+                      break
+
+          if not platforms:
+              raise SystemExit("ERROR: No platform signatures found in release assets")
+
+          latest = {
+              "version": version,
+              "notes": "",
+              "pub_date": "",
+              "platforms": platforms,
+          }
+          with open("/tmp/latest.json", "w") as f:
+              json.dump(latest, f, indent=2)
+          print(json.dumps(latest, indent=2))
+          PYEOF
+
+      - name: Upload latest.json to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" /tmp/latest.json --clobber --repo "${{ github.repository }}"

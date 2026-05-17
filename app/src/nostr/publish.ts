@@ -12,7 +12,7 @@ import { getSharedPool } from './pool'
 import type { ClipboardPayload } from '@cliprelay/shared'
 import { getSigner } from '../platform/signer'
 import { loadAuth } from '../store/auth-store'
-import { appendHistory } from '../store/history-store'
+import { appendHistory, loadHistory } from '../store/history-store'
 import { toast } from '../toast'
 import { t } from '../i18n'
 
@@ -23,6 +23,24 @@ export async function publishClipboard(
   if (writeRelays.length === 0) {
     console.warn('[publish] no write relays — skipping publish')
     return
+  }
+
+  // 텍스트 가드:
+  // 1) 빈 문자열 — 유휴 상태 복귀 직후 OS 클립보드가 비어있는 경우 발행 방지
+  // 2) 히스토리 중복 — 같은 내용을 반복 발행해 다른 기기에 노이즈를 만들지 않음
+  if (payload.type === 'text') {
+    if (payload.content === '') {
+      console.log('[publish] empty text, skipping')
+      return
+    }
+    const history = await loadHistory()
+    const duplicate = history.some(
+      item => item.payload.type === 'text' && item.payload.content === payload.content,
+    )
+    if (duplicate) {
+      console.log('[publish] text already in history, skipping')
+      return
+    }
   }
 
   const auth = await loadAuth()

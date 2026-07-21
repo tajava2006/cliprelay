@@ -7,10 +7,11 @@
  * 데스크탑: 복호화 → 클립보드 자동 쓰기 + 히스토리 저장
  * Android: 알림 표시 (복호화하지 않음) → 알림 탭 → 투명 Activity가 Amber로 복호화 → 클립보드 쓰기
  *
- * since: 구독 시작 시각 (재시작 이전 이벤트 재수신 방지)
+ * since: 기본은 구독 시작 시각 (앱 실행 이전 이벤트 재수신 방지).
+ *        연결 복구로 재시작할 때만 과거로 당겨서 끊긴 동안 놓친 이벤트를 회수한다.
  */
 import { CLIPBOARD_KIND, CLIENT_TAG } from '@cliprelay/shared'
-import { getSharedPool } from './pool'
+import { getSharedPool, relayHasLiveSubscription, CLIPBOARD_SUB_LABEL } from './pool'
 import type { ClipboardPayload } from '@cliprelay/shared'
 import { Image } from '@tauri-apps/api/image'
 import { getSigner } from '../platform/signer'
@@ -23,6 +24,9 @@ import { appendHistory, hasHistoryId } from '../store/history-store'
 import { isAndroid } from '../platform/detect'
 import { fingerprintRgba } from '../clipboard/fingerprint'
 
+/** 구독 생성 직후 릴레이 접속이 끝날 때까지의 유예. 이 사이엔 죽음 판정을 하지 않는다. */
+const CONNECT_GRACE_MS = 10_000
+
 async function notifyClipboardUpdated(detail: string): Promise<void> {
   try {
     let granted = await isPermissionGranted()
@@ -33,8 +37,12 @@ async function notifyClipboardUpdated(detail: string): Promise<void> {
 
 export interface ClipboardSubscription {
   close: () => void
+  /** 릴레이 중 하나라도 실제로 수신 가능한 상태인가 (구조 판정) */
   isAlive: () => boolean
-  getRelayStatus: () => Promise<Record<string, boolean>>
+  /** 릴레이별 수신 가능 여부. 부작용 없음(연결을 새로 만들지 않는다) */
+  getRelayStatus: () => Record<string, boolean>
+  /** 마지막으로 받은 이벤트의 created_at (초). 없으면 0 */
+  getLastEventCreatedAt: () => number
 }
 
 /**
@@ -98,23 +106,34 @@ async function processDesktopEvent(
   }).catch(err => console.error('[subscribe] history save failed:', err))
 }
 
+/**
+ * @param since 구독 시작 시점(초). 재시작 시에는 죽어 있던 동안 놓친 이벤트를 받으려고
+ *              과거로 당겨서 넣는다. 중복 수신은 processedIds + 히스토리 id로 걸러진다.
+ */
 export function startClipboardSubscription(
   userPubkey: string,
   writeRelays: string[],
   onTextWritten: (text: string) => void,
   onImageWritten: (fingerprint: string, pngBytes: Uint8Array) => void,
+  since: number = Math.floor(Date.now() / 1000),
 ): ClipboardSubscription {
   if (writeRelays.length === 0) {
     console.warn('[subscribe] no write relays — skipping subscription')
-    return { close: () => {}, isAlive: () => false, getRelayStatus: async () => ({}) }
+    return {
+      close: () => {},
+      isAlive: () => false,
+      getRelayStatus: () => ({}),
+      getLastEventCreatedAt: () => 0,
+    }
   }
 
   const pool = getSharedPool()
-  const since = Math.floor(Date.now() / 1000)
   console.log('[subscribe] starting, relays:', writeRelays, 'since:', since)
 
-  // EOSE를 받은 시각. 0이면 아직 구독 확인 안 됨.
-  let lastActivityAt = 0
+  // 구독 생성 시각. 릴레이 접속이 끝나기 전에 "죽었다"고 판정하지 않으려는 유예용.
+  const startedAt = Date.now()
+  // 마지막으로 받은 이벤트의 created_at (재시작 시 since 계산용)
+  let lastEventCreatedAt = 0
   // 릴레이가 CLOSED를 보내 구독이 종료된 상태.
   let subscriptionClosed = false
   // SimplePool의 enableReconnect가 자동 재연결 시 원래 since로 REQ를 재전송하므로
@@ -178,17 +197,18 @@ export function startClipboardSubscription(
       since,
     },
     {
+      // 구독 id가 `clipboard:<serial>`이 되어, pool 안에 이 구독이 살아 있는지
+      // 릴레이별로 직접 확인할 수 있다 (isAlive 판정에 사용).
+      label: CLIPBOARD_SUB_LABEL,
       oneose: () => {
-        lastActivityAt = Date.now()
         console.log('[subscribe] EOSE received — subscription confirmed')
       },
       onclose: (reasons: string[]) => {
         subscriptionClosed = true
-        lastActivityAt = 0
         console.warn('[subscribe] subscription closed by relay(s):', reasons)
       },
       onevent: (event: { id: string; created_at: number; content: string; tags: string[][] }) => {
-        lastActivityAt = Date.now()
+        if (event.created_at > lastEventCreatedAt) lastEventCreatedAt = event.created_at
         if (processedIds.has(event.id)) {
           console.log('[subscribe] duplicate event, skipping:', event.id.slice(0, 8))
           return
@@ -209,19 +229,32 @@ export function startClipboardSubscription(
     close: () => {
       sub.close()
     },
-    /** EOSE를 수신했고 아직 CLOSED를 받지 않은 경우에만 true */
-    isAlive: () => !subscriptionClosed && lastActivityAt > 0,
-    getRelayStatus: async () => {
+    /**
+     * 살아있음 판정.
+     *
+     * 예전에는 `!closed && lastActivityAt > 0`이었는데, 이건 사실상 항상 true였다:
+     * lastActivityAt은 EOSE를 한 번 받으면 다시 0이 되지 않고, onclose는 **모든**
+     * 릴레이의 구독이 닫혀야만 호출된다(nostr-tools abstract-pool의 handleClose).
+     * 그래서 연결이 죽어도 헬스체크가 아무것도 감지하지 못했다.
+     *
+     * 지금은 pool 내부 상태를 직접 본다 — 릴레이 소켓이 붙어 있고 그 위에 우리
+     * 구독(clipboard:*)이 실제로 열려 있는 릴레이가 하나라도 있어야 alive.
+     * 하나만 살아 있어도 수신은 되므로 some()으로 판정한다 (릴레이 목록에 죽은 URL이
+     * 섞여 있을 때 15초마다 전체 재시작하는 churn을 피하려는 의도).
+     */
+    isAlive: () => {
+      if (subscriptionClosed) return false
+      if (writeRelays.some(url => relayHasLiveSubscription(url, CLIPBOARD_SUB_LABEL))) return true
+      // 아직 접속/구독 중일 수 있으므로 생성 직후 잠깐은 죽었다고 판정하지 않는다
+      return Date.now() - startedAt < CONNECT_GRACE_MS
+    },
+    getRelayStatus: () => {
       const status: Record<string, boolean> = {}
       for (const url of writeRelays) {
-        try {
-          const relay = await pool.ensureRelay(url)
-          status[url] = relay.connected
-        } catch {
-          status[url] = false
-        }
+        status[url] = relayHasLiveSubscription(url, CLIPBOARD_SUB_LABEL)
       }
       return status
     },
+    getLastEventCreatedAt: () => lastEventCreatedAt,
   }
 }

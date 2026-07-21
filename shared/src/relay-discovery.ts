@@ -4,7 +4,8 @@
  * RELAY_LIST_KIND 이벤트에서 write 릴레이 목록을 추출한다.
  * 클립보드 이벤트 발행/구독에는 write 릴레이만 사용한다.
  */
-import { SimplePool } from 'nostr-tools/pool'
+import type { SimplePool } from 'nostr-tools/pool'
+import { createPool } from './pool.ts'
 import type { Event } from 'nostr-tools/core'
 import { RELAY_LIST_KIND, NIP65_DISCOVERY_RELAYS } from './constants.ts'
 
@@ -37,7 +38,7 @@ export function parseWriteRelays(event: Event): string[] {
  * 이벤트 없거나 write 릴레이가 없으면 null 반환.
  */
 export async function fetchWriteRelays(userPubkey: string, externalPool?: SimplePool): Promise<string[] | null> {
-  const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
+  const pool = externalPool ?? createPool()
   try {
     const event = await pool.get(NIP65_DISCOVERY_RELAYS, {
       kinds: [RELAY_LIST_KIND],
@@ -65,7 +66,7 @@ export function subscribeWriteRelays(
   onUpdate: (relays: string[]) => void,
   externalPool?: SimplePool,
 ): () => void {
-  const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
+  const pool = externalPool ?? createPool()
   let latestCreatedAt = 0
 
   const sub = pool.subscribeMany(

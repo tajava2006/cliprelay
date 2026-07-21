@@ -1,4 +1,5 @@
 export * from './constants.ts'
+export * from './pool.ts'
 export * from './types.ts'
 export * from './nip46.ts'
 export * from './relay-discovery.ts'

@@ -4,7 +4,8 @@
  * 사용자의 kind:0 메타데이터 이벤트에서 프로필 정보를 추출한다.
  * relay-discovery.ts와 동일한 패턴: one-shot fetch + 지속 구독.
  */
-import { SimplePool } from 'nostr-tools/pool'
+import type { SimplePool } from 'nostr-tools/pool'
+import { createPool } from './pool.ts'
 import type { Event } from 'nostr-tools/core'
 import { npubEncode } from 'nostr-tools/nip19'
 import type { UserProfile } from './types.ts'
@@ -48,7 +49,7 @@ export async function fetchProfile(
   writeRelays: string[],
   externalPool?: SimplePool,
 ): Promise<UserProfile | null> {
-  const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
+  const pool = externalPool ?? createPool()
   try {
     const event = await pool.get(writeRelays, {
       kinds: [PROFILE_KIND],
@@ -75,7 +76,7 @@ export function subscribeProfile(
   onUpdate: (profile: UserProfile) => void,
   externalPool?: SimplePool,
 ): () => void {
-  const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
+  const pool = externalPool ?? createPool()
   let latestCreatedAt = 0
 
   const sub = pool.subscribeMany(

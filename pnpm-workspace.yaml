@@ -1,5 +1,13 @@
 packages:
   - shared
   - app
+
+# @tauri-apps/api는 반드시 한 벌만 설치되어야 한다.
+# 플러그인마다 요구 범위가 달라(^2.8.0 ~ ^2.11.0) pnpm이 2.10.1과 2.11.1을 각각 설치하면,
+# 번들에 invoke/Channel 런타임이 두 벌 들어가고 Image 같은 클래스의 정체성이 갈린다
+# (clipboard-manager가 받은 Image !== api가 만든 Image → 타입 에러이자 실제 런타임 위험).
+overrides:
+  '@tauri-apps/api': ^2.11.1
+
 ignoredBuiltDependencies:
   - esbuild

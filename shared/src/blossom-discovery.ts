@@ -4,7 +4,8 @@
  * kind:10063 이벤트에서 사용자의 Blossom 서버 목록을 추출한다.
  * 릴레이 디스커버리와 동일한 패턴으로 NIP65_DISCOVERY_RELAYS에서 조회한다.
  */
-import { SimplePool } from 'nostr-tools/pool'
+import type { SimplePool } from 'nostr-tools/pool'
+import { createPool } from './pool.ts'
 import type { Event } from 'nostr-tools/core'
 import { BLOSSOM_SERVER_LIST_KIND } from './constants.ts'
 
@@ -26,7 +27,7 @@ export async function fetchBlossomServers(
   externalPool?: SimplePool,
 ): Promise<string[] | null> {
   if (writeRelays.length === 0) return null
-  const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
+  const pool = externalPool ?? createPool()
   try {
     const event = await pool.get(writeRelays, {
       kinds: [BLOSSOM_SERVER_LIST_KIND],
@@ -57,7 +58,7 @@ export function subscribeBlossomServers(
 ): () => void {
   if (writeRelays.length === 0) return () => {}
 
-  const pool = externalPool ?? new SimplePool({ enablePing: true, enableReconnect: true })
+  const pool = externalPool ?? createPool()
   let latestCreatedAt = 0
 
   const sub = pool.subscribeMany(

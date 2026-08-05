@@ -19,6 +19,14 @@ import { t } from '../i18n'
 export async function publishClipboard(
   payload: ClipboardPayload,
   writeRelays: string[],
+  opts?: {
+    /**
+     * 히스토리 중복 가드 무시. 중복 가드는 클립보드 모니터가 같은 내용을 반복
+     * 발행하는 노이즈를 막기 위한 것 — 입력란에서 사용자가 명시적으로 보내는
+     * 텍스트는 이미 보낸 것과 같아도 보내야 하므로 이걸 켠다.
+     */
+    force?: boolean
+  },
 ): Promise<void> {
   if (writeRelays.length === 0) {
     console.warn('[publish] no write relays — skipping publish')
@@ -33,13 +41,15 @@ export async function publishClipboard(
       console.log('[publish] empty text, skipping')
       return
     }
-    const history = await loadHistory()
-    const duplicate = history.some(
-      item => item.payload.type === 'text' && item.payload.content === payload.content,
-    )
-    if (duplicate) {
-      console.log('[publish] text already in history, skipping')
-      return
+    if (!opts?.force) {
+      const history = await loadHistory()
+      const duplicate = history.some(
+        item => item.payload.type === 'text' && item.payload.content === payload.content,
+      )
+      if (duplicate) {
+        console.log('[publish] text already in history, skipping')
+        return
+      }
     }
   }
 

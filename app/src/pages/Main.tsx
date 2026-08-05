@@ -8,6 +8,8 @@
  */
 import { useEffect, useState } from 'react'
 import { t } from '../i18n'
+import { publishClipboard } from '../nostr/publish'
+import { toast } from '../toast'
 import { pubkeyToNpub } from '@cliprelay/shared'
 import type { UserProfile } from '@cliprelay/shared'
 import { isAndroid } from '../platform/detect'
@@ -36,9 +38,27 @@ const POLL_INTERVAL_MS = 5000
 export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowHistory, onLogout, getRelayStatus }: MainProps) {
   const [relayStatus, setRelayStatus] = useState<Record<string, ConnStatus>>({})
   const [permissions, setPermissions] = useState<PermissionStatus | null>(null)
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
 
   const npub = pubkeyToNpub(userPubkey)
   const displayName = profile?.display_name || profile?.name || null
+
+  // 입력란 텍스트를 클립보드 이벤트로 발행 — 받는 기기에선 복사한 것과 똑같이 동작.
+  // force: 모니터용 히스토리 중복 가드를 무시 (같은 텍스트 재전송 허용)
+  const sendDraft = async () => {
+    if (!draft.trim() || sending || writeRelays.length === 0) return
+    setSending(true)
+    try {
+      await publishClipboard({ type: 'text', content: draft }, writeRelays, { force: true })
+      setDraft('')
+    } catch (err) {
+      console.error('[compose] send failed:', err)
+      toast(t('main.compose.fail'), 'error')
+    } finally {
+      setSending(false)
+    }
+  }
 
   const refreshPermissions = async () => {
     if (!isAndroid()) return
@@ -122,6 +142,30 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
         </div>
       )}
 
+      {/* ─── Compose — 입력한 텍스트를 다른 기기로 전송 ─── */}
+      <div style={s.compose}>
+        <textarea
+          style={s.composeInput}
+          value={draft}
+          placeholder={t('main.compose.placeholder')}
+          rows={2}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              void sendDraft()
+            }
+          }}
+        />
+        <button
+          style={s.composeBtn(sending || !draft.trim() || writeRelays.length === 0)}
+          disabled={sending || !draft.trim() || writeRelays.length === 0}
+          onClick={() => void sendDraft()}
+        >
+          {t('main.compose.send')}
+        </button>
+      </div>
+
       {/* ─── Android 권한 상태 ─── */}
       {isAndroid() && permissions && (!permissions.notificationGranted || !permissions.batteryExempted || !permissions.receiverChannelIsHigh) && (
         <div style={s.permSection}>
@@ -180,7 +224,9 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
           ? <p style={s.warn}>{t('main.relays.empty')}</p>
           : writeRelays.map(relay => (
               <div key={relay} style={s.serverRow}>
-                <span style={s.statusDot(relayStatus[relay])} />
+                <span style={s.statusMark(relayStatus[relay])} aria-label={relayStatus[relay] ?? 'checking'}>
+                  {statusGlyph(relayStatus[relay])}
+                </span>
                 <span style={s.serverUrl}>{relay.replace(/^wss?:\/\//, '')}</span>
               </div>
             ))
@@ -210,10 +256,21 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
   )
 }
 
+/**
+ * 색깔이 아니라 도형으로 상태를 구별한다 (적녹색약 대응 — bridge relay_status.ts와 동일 규약):
+ *   ● 연결됨 / ○ 끊김 / ◐ 확인 중
+ * 색은 보조 신호로만 쓰고, 적녹 구분이 필요 없는 파랑/주황 쌍을 쓴다.
+ */
+const statusGlyph = (status?: ConnStatus) => {
+  if (status === 'ok') return '●'
+  if (status === 'error') return '○'
+  return '◐'
+}
+
 const statusColor = (status?: ConnStatus) => {
-  if (status === 'ok') return '#16a34a'
-  if (status === 'error') return '#dc2626'
-  return '#d4d4d4'
+  if (status === 'ok') return '#2563eb'
+  if (status === 'error') return '#d97706'
+  return '#a3a3a3'
 }
 
 const s = {
@@ -344,6 +401,38 @@ const s = {
     whiteSpace: 'nowrap' as const,
   },
 
+  // ─── Compose ───
+  compose: {
+    width: '100%',
+    maxWidth: 360,
+    marginTop: 12,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 6,
+  },
+  composeInput: {
+    width: '100%',
+    padding: '8px 10px',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    lineHeight: 1.4,
+    border: '1px solid #e5e5e5',
+    borderRadius: 8,
+    resize: 'vertical' as const,
+    boxSizing: 'border-box' as const,
+  },
+  composeBtn: (disabled: boolean) => ({
+    alignSelf: 'flex-end' as const,
+    padding: '6px 18px',
+    fontSize: 13,
+    fontWeight: 600,
+    background: disabled ? '#e5e5e5' : '#111',
+    color: disabled ? '#999' : '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: disabled ? 'default' : 'pointer',
+  }),
+
   // ─── Permission Section ───
   permSection: {
     width: '100%',
@@ -422,14 +511,15 @@ const s = {
     gap: 8,
     padding: '6px 0',
   },
-  statusDot: (status?: ConnStatus) => ({
+  statusMark: (status?: ConnStatus) => ({
     display: 'inline-block',
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: statusColor(status),
+    width: 14,
+    fontSize: 13,
+    lineHeight: 1,
+    textAlign: 'center' as const,
+    color: statusColor(status),
     flexShrink: 0,
-    transition: 'background 0.3s',
+    transition: 'color 0.3s',
   }),
   serverUrl: {
     fontSize: 13,

@@ -13,6 +13,7 @@
 import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
+import type { AbstractSimplePool } from 'nostr-tools/abstract-pool'
 import { NIP46_BOOTSTRAP_RELAYS } from './constants.ts'
 
 export { bytesToHex, hexToBytes, NIP46_BOOTSTRAP_RELAYS }
@@ -64,15 +65,26 @@ export async function connectFromBunkerURL(
 
 // ─── 세션 복원 ───────────────────────────────────────────────
 
-/** 저장된 세션 정보로 BunkerSigner 복원 (connect RPC 없이) */
+/**
+ * 저장된 세션 정보로 BunkerSigner 복원 (connect RPC 없이)
+ *
+ * @param pool 서명자 전용 pool. 안 주면 nostr-tools가 기본 SimplePool을 만드는데,
+ *             그건 ping/자동재연결이 꺼져 있어서 연결이 한 번 끊기면 영영 안 돌아온다.
+ *             상시 연결이 필요하면 createPool()로 만든 것을 넘길 것.
+ */
 export function restoreSigner(
   clientPrivkeyHex: string,
   signerPubkey: string,
   signerRelays: string[],
+  pool?: AbstractSimplePool,
 ): BunkerSigner {
-  return BunkerSigner.fromBunker(hexToBytes(clientPrivkeyHex), {
-    pubkey: signerPubkey,
-    relays: signerRelays,
-    secret: null,
-  })
+  return BunkerSigner.fromBunker(
+    hexToBytes(clientPrivkeyHex),
+    {
+      pubkey: signerPubkey,
+      relays: signerRelays,
+      secret: null,
+    },
+    pool ? { pool } : {},
+  )
 }

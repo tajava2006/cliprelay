@@ -41,8 +41,8 @@ importers:
         specifier: ^2.10.1
         version: 2.10.1
       nostr-tools:
-        specifier: ^2.23.12
-        version: 2.23.12(typescript@7.0.2)
+        specifier: ^2.24.1
+        version: 2.24.1(typescript@7.0.2)
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@19.2.7)
@@ -75,8 +75,8 @@ importers:
   shared:
     dependencies:
       nostr-tools:
-        specifier: ^2.23.12
-        version: 2.23.12(typescript@7.0.2)
+        specifier: ^2.24.1
+        version: 2.24.1(typescript@7.0.2)
 
 packages:
 
@@ -722,8 +722,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nostr-tools@2.23.12:
-    resolution: {integrity: sha512-dLE9r0b4pCmrOKLUPD0KhUj9IXeh6RwiYoonEWeBh2AaDmlczUjJqJC8pQfggXzKUZ7+uZvhcrKkfwuZk0/e1g==}
+  nostr-tools@2.24.1:
+    resolution: {integrity: sha512-KdrKjC74n/rr6J3eCSfZj8dcbZFvolHYe4S22SefNZ5YWbhHiB0KL/mmJjEZ0u6B9mZK0YcQtl+WQ46KzwapeQ==}
     peerDependencies:
       typescript: '>=5.0.0'
     peerDependenciesMeta:
@@ -1253,7 +1253,7 @@ snapshots:
 
   nanoid@3.3.16: {}
 
-  nostr-tools@2.23.12(typescript@7.0.2):
+  nostr-tools@2.24.1(typescript@7.0.2):
     dependencies:
       '@noble/ciphers': 2.1.1
       '@noble/curves': 2.0.1

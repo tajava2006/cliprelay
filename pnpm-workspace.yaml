@@ -9,5 +9,11 @@ packages:
 overrides:
   '@tauri-apps/api': ^2.11.1
 
-ignoredBuiltDependencies:
+# esbuild postinstall은 플랫폼 바이너리 검증용 — vite 필수 의존성이라 빌드 스크립트 허용.
+# 두 키 병기: CI는 pnpm 10(onlyBuiltDependencies만 이해), 로컬은 11(allowBuilds만 이해).
+# 서로 모르는 키는 각자 무시한다 (v0.1.2 릴리즈에서 검증됨).
+onlyBuiltDependencies:
   - esbuild
+
+allowBuilds:
+  esbuild: true

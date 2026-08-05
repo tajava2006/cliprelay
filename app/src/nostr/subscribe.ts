@@ -43,7 +43,24 @@ export interface ClipboardSubscription {
   getRelayStatus: () => Record<string, boolean>
   /** 마지막으로 받은 이벤트의 created_at (초). 없으면 0 */
   getLastEventCreatedAt: () => number
+  /**
+   * 생사 프로브 — 실제 REQ→EOSE 왕복으로 판정한다.
+   *
+   * isAlive()는 relay.connected(=readyState)를 믿는데, 맥에서 소켓이 OS 레벨로
+   * 죽어도 close/error 이벤트가 JS까지 안 올라오면 그 플래그는 영원히 true로
+   * 얼어붙는다 (실사고: 표시등 ●인데 네트워킹 프로세스에 소켓 0개, 2026-08-05).
+   * 왕복만이 진실이다.
+   *
+   * nostr-tools의 EOSE 배칭은 "연결 실패한 릴레이"도 카운트에 포함하므로
+   * (abstract-pool handleClose→handleEose), 죽어서 접속이 안 되는 릴레이가
+   * 목록에 섞여 있어도 프로브는 통과한다. false가 나오는 경우는 정확히
+   * "응답도 실패도 안 하는 언데드 릴레이가 존재"할 때뿐이다.
+   */
+  probe: (timeoutMs: number) => Promise<boolean>
 }
+
+/** 프로브 REQ용 더미 이벤트 id — 존재할 수 없는 id라 limit:0과 함께 즉시 EOSE만 받는다 */
+const PROBE_DUMMY_ID = 'a'.repeat(64)
 
 /**
  * 데스크탑 수신: 복호화 → 클립보드 자동 쓰기 + 히스토리 저장
@@ -124,6 +141,7 @@ export function startClipboardSubscription(
       isAlive: () => false,
       getRelayStatus: () => ({}),
       getLastEventCreatedAt: () => 0,
+      probe: () => Promise.resolve(false),
     }
   }
 
@@ -203,9 +221,13 @@ export function startClipboardSubscription(
       oneose: () => {
         console.log('[subscribe] EOSE received — subscription confirmed')
       },
-      onclose: (reasons: string[]) => {
+      // nostr-tools 2.24+: reasons가 {url, reason}[] (2.23.x는 string[])
+      onclose: (reasons: { url: string; reason: string }[]) => {
         subscriptionClosed = true
-        console.warn('[subscribe] subscription closed by relay(s):', reasons)
+        console.warn(
+          '[subscribe] subscription closed by relay(s):',
+          reasons.map(r => `${r.url}: ${r.reason}`).join(', '),
+        )
       },
       onevent: (event: { id: string; created_at: number; content: string; tags: string[][] }) => {
         if (event.created_at > lastEventCreatedAt) lastEventCreatedAt = event.created_at
@@ -256,5 +278,27 @@ export function startClipboardSubscription(
       return status
     },
     getLastEventCreatedAt: () => lastEventCreatedAt,
+    probe: (timeoutMs: number) =>
+      new Promise<boolean>(resolve => {
+        let settled = false
+        const done = (ok: boolean) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          try { probeSub.close() } catch { /* ignore */ }
+          resolve(ok)
+        }
+        const timer = setTimeout(() => done(false), timeoutMs)
+        const probeSub = pool.subscribeMany(
+          writeRelays,
+          { ids: [PROBE_DUMMY_ID], limit: 0 },
+          {
+            label: '<liveness>',
+            // 모든 릴레이가 EOSE 또는 실패로 응답을 마쳐야 발화 — 언데드가 있으면 안 옴
+            oneose: () => done(true),
+            onevent: () => {},
+          },
+        )
+      }),
   }
 }

@@ -39,12 +39,15 @@ export function getSharedPool(): AppPool {
   return pool
 }
 
-/** 로그아웃 시 pool 파괴. 다음 getSharedPool() 호출 시 새로 생성된다. */
+/**
+ * pool 파괴 (로그아웃, 헬스체크 hardReset). 다음 getSharedPool() 호출 시 새로 생성된다.
+ * destroy()가 던져도 싱글턴은 무조건 비운다 — 꼬인 pool을 붙들고 있는 것보다
+ * 새로 시작하는 쪽이 항상 안전하다.
+ */
 export function destroySharedPool(): void {
-  if (pool) {
-    pool.destroy()
-    pool = null
-  }
+  const old = pool
+  pool = null
+  old?.destroy()
 }
 
 /**

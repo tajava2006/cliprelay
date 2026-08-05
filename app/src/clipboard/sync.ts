@@ -14,7 +14,7 @@ import type { UserProfile } from '@cliprelay/shared'
 import { saveWriteRelays } from '../store/relay-store'
 import { saveBlossomServers } from '../store/blossom-store'
 import { saveProfile } from '../store/profile-store'
-import { getSharedPool, dropRelayConnections } from '../nostr/pool'
+import { getSharedPool, destroySharedPool, dropRelayConnections } from '../nostr/pool'
 import { startWatchdog } from '../nostr/watchdog'
 import { startClipboardSubscription, type ClipboardSubscription } from '../nostr/subscribe'
 import { startPlatformClipboardMonitor } from '../platform/clipboard'
@@ -41,6 +41,28 @@ const RESTART_LOOKBACK_S = 300
  * 영원히 재접속 폭풍이 되므로, 복구는 느린 주기로만 돈다.
  */
 const REPAIR_INTERVAL_MS = 300_000
+/**
+ * 죽음이 연속 관측되면 복구 수단을 단계적으로 올린다 (헬스체크 tick 단위, 15초 간격).
+ *
+ * restartAll(구독만 재생성)은 pool 안의 relay 객체를 그대로 재사용하는데, nostr-tools의
+ * relay.connect()는 기존 connectionPromise가 있으면 (영영 안 끝나는 것이어도) 그걸 그대로
+ * 반환한다. 슬립 도중 CONNECTING 상태로 얼어붙은 소켓이 하나라도 pool에 남으면 이후의
+ * 모든 재구독이 소켓 생성조차 없이 조용히 매달린다 — 실측: 앱 이틀 방치 후 OS 소켓 0개,
+ * 헬스체크는 돌지만 접속 시도 자체가 안 생김. 그래서:
+ *
+ *   tick 1     restartAll        — 구독만 재생성 (릴레이가 CLOSED 보낸 정상 케이스용)
+ *   tick 2~3   forceReconnect    — 소켓을 버리고 pool 맵에서도 제거 (좀비/웨지 소켓 퇴거)
+ *   tick 4+    hardReset         — pool 객체 자체를 파괴하고 새로 만든다 (라이브러리가
+ *                                  어떤 상태로 꼬였든 여기는 못 살아남는다)
+ */
+const FORCE_RECONNECT_AFTER_TICKS = 2
+const HARD_RESET_AFTER_TICKS = 4
+/**
+ * 생사 프로브(REQ→EOSE 왕복) 응답 대기 시간.
+ * 접속 실패도 EOSE 배칭에 카운트되므로(ensureRelay 3초 타임아웃 포함) 정상 상황에선
+ * 수 초 안에 결판난다. 넉넉히 8초 — 15초 헬스체크 주기 안에서 완결되는 값.
+ */
+const PROBE_TIMEOUT_MS = 8_000
 
 export interface SyncEngineOpts {
   userPubkey: string
@@ -73,6 +95,10 @@ export class SyncEngine {
   private lastSubRestart: number = 0
   private lastRepair: number = 0
   private lastEventCreatedAt: number = 0
+  /** 헬스체크에서 연속으로 "죽음"이 관측된 횟수. 살아있으면 0으로 리셋. */
+  private deadTicks: number = 0
+  /** 생사 프로브 중복 실행 방지 */
+  private probeInFlight: boolean = false
 
   constructor(opts: SyncEngineOpts) {
     this.userPubkey = opts.userPubkey
@@ -139,6 +165,32 @@ export class SyncEngine {
     this.restartAll(true)
   }
 
+  /**
+   * 최후 수단 — 공유 pool 객체를 통째로 파괴하고 처음부터 다시 만든다.
+   *
+   * forceReconnect는 pool.close()를 거치는데, nostr-tools 내부 상태가 꼬인 relay는
+   * close 경로 자체가 온전히 동작한다는 보장이 없다 (CONNECTING 소켓 미중단,
+   * 스테일 connectionPromise 잔존 등). 새 pool은 빈 맵에서 시작하므로 이전 세대의
+   * 어떤 상태도 승계하지 않는다 — 이후 구독은 반드시 새 WebSocket을 만든다.
+   * BunkerSigner는 자기 전용 pool을 쓰므로 영향 없다.
+   */
+  private hardReset(reason: string): void {
+    this.lastSubRestart = Date.now()
+    console.warn(`[sync] hard reset (${reason}) — destroying shared pool`)
+    this.harvestProgress()
+    this.clipboardSub?.close(); this.clipboardSub = null
+    this.relaySubCleanup?.(); this.relaySubCleanup = null
+    this.blossomSubCleanup?.(); this.blossomSubCleanup = null
+    this.profileSubCleanup?.(); this.profileSubCleanup = null
+    try {
+      destroySharedPool()
+    } catch (err) {
+      // 파괴가 실패해도 싱글턴은 비워지므로 다음 getSharedPool()은 새 pool을 만든다
+      console.error('[sync] pool destroy failed (continuing with fresh pool):', err)
+    }
+    this.restartAll(true)
+  }
+
   /** 클립보드 구독이 죽었으면 쿨다운(10초) 안에서 전체 재시작. 발행 중이면 건너뜀. */
   maybeRestartIfDead(): void {
     if (this.writeRelays.length === 0) return // 릴레이 디스커버리가 먼저 끝나야 함
@@ -147,19 +199,47 @@ export class SyncEngine {
     if (now - this.lastSubRestart <= RESTART_COOLDOWN_MS) return
 
     if (!this.clipboardSub?.isAlive()) {
-      this.lastSubRestart = now
-      console.warn('[sync] subscription not alive — restarting all subscriptions')
-      this.restartAll(true)
+      this.escalate()
       return
     }
 
-    // 일부 릴레이만 죽은 경우 — 수신은 되고 있으니 느린 주기로만 복구
-    const status = this.clipboardSub.getRelayStatus()
-    const dead = Object.keys(status).filter(url => !status[url])
-    if (dead.length > 0 && now - this.lastRepair > REPAIR_INTERVAL_MS) {
-      this.lastRepair = now
-      this.lastSubRestart = now
-      console.warn('[sync] partially dead relays — repairing:', dead)
+    // 구조 판정은 통과 — 하지만 relay.connected는 좀비 소켓(OS 소켓은 죽었는데
+    // 이벤트가 JS까지 안 올라온 상태)에서 영원히 true로 얼어붙으므로,
+    // 실제 REQ→EOSE 왕복으로 검증한다. 실패하면 같은 사다리로 올라간다.
+    if (this.probeInFlight) return
+    this.probeInFlight = true
+    void this.clipboardSub.probe(PROBE_TIMEOUT_MS).then(ok => {
+      this.probeInFlight = false
+      if (!ok) {
+        console.warn('[sync] liveness probe failed — connection is undead, escalating')
+        this.escalate()
+        return
+      }
+      this.deadTicks = 0
+
+      // 진짜 살아있음 — 일부 릴레이만 죽은 경우는 느린 주기로만 복구
+      const status = this.clipboardSub?.getRelayStatus() ?? {}
+      const dead = Object.keys(status).filter(url => !status[url])
+      const nowInner = Date.now()
+      if (dead.length > 0 && nowInner - this.lastRepair > REPAIR_INTERVAL_MS) {
+        this.lastRepair = nowInner
+        this.lastSubRestart = nowInner
+        console.warn('[sync] partially dead relays — repairing:', dead)
+        this.restartAll(true)
+      }
+    })
+  }
+
+  /** 죽음 관측 1회분의 사다리 진행: restartAll → forceReconnect → hardReset */
+  private escalate(): void {
+    this.deadTicks++
+    if (this.deadTicks >= HARD_RESET_AFTER_TICKS) {
+      this.hardReset(`dead for ${this.deadTicks} checks`)
+    } else if (this.deadTicks >= FORCE_RECONNECT_AFTER_TICKS) {
+      this.forceReconnect(`dead for ${this.deadTicks} checks`)
+    } else {
+      this.lastSubRestart = Date.now()
+      console.warn('[sync] subscription not alive — restarting all subscriptions')
       this.restartAll(true)
     }
   }

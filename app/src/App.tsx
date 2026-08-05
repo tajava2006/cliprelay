@@ -13,6 +13,7 @@ import { loadWriteRelays, saveWriteRelays, clearWriteRelays } from './store/rela
 import { loadBlossomServers, saveBlossomServers, clearBlossomServers } from './store/blossom-store'
 import { loadProfile, saveProfile, clearProfile } from './store/profile-store'
 import { setSigner, clearSigner } from './platform/signer'
+import { restoreResilientSigner } from './platform/resilient-signer'
 import { destroySharedPool, getSharedPool } from './nostr/pool'
 import { startForegroundService, stopForegroundService, onNetworkChanged, startNativeSubscription, stopNativeSubscription, setAppForeground } from './platform/android/foreground-service'
 import { androidOnForeground } from './platform/android/lifecycle'
@@ -20,7 +21,6 @@ import { publishDefaultRelayList, publishDefaultBlossomList } from './nostr/setu
 import { clearHistory } from './store/history-store'
 import { SyncEngine } from './clipboard/sync'
 import {
-  restoreSigner,
   fetchWriteRelays,
   fetchBlossomServers,
   fetchProfile,
@@ -183,7 +183,7 @@ function App() {
           if (cancelled) return
           setSigner(new AmberSigner(auth.userPubkey, auth.amberPackage ?? ''))
         } else {
-          const signer = restoreSigner(auth.clientPrivkey!, auth.signerPubkey!, auth.signerRelays!)
+          const signer = restoreResilientSigner(auth.clientPrivkey!, auth.signerPubkey!, auth.signerRelays!)
           setSigner(signer)
         }
         if (cancelled) return

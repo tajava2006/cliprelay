@@ -20,6 +20,7 @@ import { getPublicKey } from 'nostr-tools/pure'
 import type { BunkerSigner } from 'nostr-tools/nip46'
 import { saveAuth } from '../store/auth-store'
 import { setSigner } from '../platform/signer'
+import { makeResilientSigner } from '../platform/resilient-signer'
 import { isAndroid } from '../platform/detect'
 import { t } from '../i18n'
 
@@ -84,7 +85,9 @@ export function Login({ onLogin }: LoginProps) {
     async (signer: BunkerSigner, clientKey: Uint8Array) => {
       setPhase({ status: 'connecting' })
       const userPubkey = await signer.getPublicKey()
-      setSigner(signer)
+      // 타임아웃+자가재생성 래퍼로 감싼다 — 로그인 직후의 내부 pool은 재연결이 없는
+      // 기본값이지만, 첫 타임아웃 때 rebuild가 튼튼한 pool로 갈아끼운다
+      setSigner(makeResilientSigner(signer))
       await saveAuth({
         signerType: 'bunker',
         clientPrivkey: bytesToHex(clientKey),

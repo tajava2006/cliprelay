@@ -21,6 +21,8 @@ export interface UniversalSigner {
   nip44Encrypt(pubkey: string, plaintext: string): Promise<string>
   nip44Decrypt(pubkey: string, ciphertext: string): Promise<string>
   close?(): void
+  /** 연결이 의심될 때 선제 재생성 (ResilientBunkerSigner만 구현, Amber는 무관) */
+  kick?(reason: string): void
 }
 
 let _signer: UniversalSigner | null = null
@@ -41,4 +43,13 @@ export function clearSigner(): void {
 
 export function hasSigner(): boolean {
   return _signer !== null
+}
+
+/**
+ * 연결 의심 신호를 signer에 전달 — SyncEngine 사다리(forceReconnect/hardReset)가
+ * 클립보드 pool을 못 믿겠다고 판단한 시점에 signer pool도 같이 재생성한다.
+ * signer가 없거나 kick을 구현하지 않으면(Amber) 무해한 no-op.
+ */
+export function kickSigner(reason: string): void {
+  try { _signer?.kick?.(reason) } catch { /* ignore */ }
 }

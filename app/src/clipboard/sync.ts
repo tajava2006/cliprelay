@@ -17,6 +17,9 @@ import { saveProfile } from '../store/profile-store'
 import { getSharedPool, destroySharedPool, dropRelayConnections } from '../nostr/pool'
 import { startWatchdog } from '../nostr/watchdog'
 import { startClipboardSubscription, type ClipboardSubscription } from '../nostr/subscribe'
+import { tryLastResort, noteRecovered } from '../platform/last-resort'
+import { kickSigner } from '../platform/signer'
+import { logConn } from '../nostr/connlog'
 import { startPlatformClipboardMonitor } from '../platform/clipboard'
 import { startNativeSubscription } from '../platform/android/foreground-service'
 import { publishClipboard } from '../nostr/publish'
@@ -57,6 +60,12 @@ const REPAIR_INTERVAL_MS = 300_000
  */
 const FORCE_RECONNECT_AFTER_TICKS = 2
 const HARD_RESET_AFTER_TICKS = 4
+/**
+ * hardReset조차 소용없는 죽음(예: WKWebView suspend 후 페이지 소켓 채널 고장 —
+ * new WebSocket이 OS 소켓 생성조차 못 함)이 이 tick 수를 넘기면 최후수단
+ * (페이지 리로드 → 앱 재시작)으로 올라간다. 8 tick ≈ 2분.
+ */
+const LAST_RESORT_AFTER_TICKS = 8
 /**
  * 생사 프로브(REQ→EOSE 왕복) 응답 대기 시간.
  * 접속 실패도 EOSE 배칭에 카운트되므로(ensureRelay 3초 타임아웃 포함) 정상 상황에선
@@ -99,6 +108,8 @@ export class SyncEngine {
   private deadTicks: number = 0
   /** 생사 프로브 중복 실행 방지 */
   private probeInFlight: boolean = false
+  /** 최후수단(오라클 체크 포함) 중복 실행 방지 */
+  private lastResortInFlight: boolean = false
 
   constructor(opts: SyncEngineOpts) {
     this.userPubkey = opts.userPubkey
@@ -155,6 +166,9 @@ export class SyncEngine {
     if (now - this.lastSubRestart <= RESTART_COOLDOWN_MS) return
     this.lastSubRestart = now
     console.warn(`[sync] force reconnect (${reason}) — dropping sockets`)
+    logConn(`force reconnect: ${reason}`)
+    // 클립보드 소켓을 못 믿는 상황이면 signer 소켓도 못 믿는다 — 같이 재생성
+    kickSigner(reason)
     // 구독을 버리기 전에 진행 지점을 챙긴다 (재구독 since 계산에 쓴다)
     this.harvestProgress()
     this.clipboardSub?.close(); this.clipboardSub = null
@@ -177,6 +191,8 @@ export class SyncEngine {
   private hardReset(reason: string): void {
     this.lastSubRestart = Date.now()
     console.warn(`[sync] hard reset (${reason}) — destroying shared pool`)
+    logConn(`hard reset: ${reason}`)
+    kickSigner(reason)
     this.harvestProgress()
     this.clipboardSub?.close(); this.clipboardSub = null
     this.relaySubCleanup?.(); this.relaySubCleanup = null
@@ -208,14 +224,28 @@ export class SyncEngine {
     // 실제 REQ→EOSE 왕복으로 검증한다. 실패하면 같은 사다리로 올라간다.
     if (this.probeInFlight) return
     this.probeInFlight = true
-    void this.clipboardSub.probe(PROBE_TIMEOUT_MS).then(ok => {
+    let probing: Promise<boolean>
+    try {
+      probing = this.clipboardSub.probe(PROBE_TIMEOUT_MS)
+    } catch (err) {
+      // 동기 예외로 probeInFlight가 true에 갇히면 헬스체크 전체가 영구 무력화된다
+      this.probeInFlight = false
+      console.error('[sync] probe threw synchronously — escalating:', err)
+      this.escalate()
+      return
+    }
+    void probing.then(ok => {
       this.probeInFlight = false
       if (!ok) {
         console.warn('[sync] liveness probe failed — connection is undead, escalating')
         this.escalate()
         return
       }
+      if (this.deadTicks > 0) {
+        logConn(`recovered after ${this.deadTicks} dead check(s)`)
+      }
       this.deadTicks = 0
+      noteRecovered()
 
       // 진짜 살아있음 — 일부 릴레이만 죽은 경우는 느린 주기로만 복구
       const status = this.clipboardSub?.getRelayStatus() ?? {}
@@ -225,14 +255,28 @@ export class SyncEngine {
         this.lastRepair = nowInner
         this.lastSubRestart = nowInner
         console.warn('[sync] partially dead relays — repairing:', dead)
+        logConn(`repair: ${dead.length} dead relay(s)`)
         this.restartAll(true)
       }
     })
   }
 
-  /** 죽음 관측 1회분의 사다리 진행: restartAll → forceReconnect → hardReset */
+  /**
+   * 죽음 관측 1회분의 사다리 진행: restartAll → forceReconnect → hardReset
+   * → (그래도 안 되면) 페이지 리로드/앱 재시작.
+   *
+   * 최후수단은 hardReset과 병행으로 발동한다 — 오라클 체크(비동기 5초)가 도는
+   * 동안에도 hardReset 재시도는 계속해서, 오라클이 오프라인 판정을 내리면
+   * 자연스럽게 hardReset 루프에 머문다.
+   */
   private escalate(): void {
     this.deadTicks++
+    if (this.deadTicks >= LAST_RESORT_AFTER_TICKS && !this.lastResortInFlight) {
+      this.lastResortInFlight = true
+      void tryLastResort(this.writeRelays)
+        .catch(err => console.error('[sync] last resort failed:', err))
+        .finally(() => { this.lastResortInFlight = false })
+    }
     if (this.deadTicks >= HARD_RESET_AFTER_TICKS) {
       this.hardReset(`dead for ${this.deadTicks} checks`)
     } else if (this.deadTicks >= FORCE_RECONNECT_AFTER_TICKS) {
@@ -240,6 +284,7 @@ export class SyncEngine {
     } else {
       this.lastSubRestart = Date.now()
       console.warn('[sync] subscription not alive — restarting all subscriptions')
+      logConn('resubscribe: subscription dead')
       this.restartAll(true)
     }
   }

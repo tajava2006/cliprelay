@@ -21,9 +21,12 @@ import type { SimplePool } from 'nostr-tools/pool'
 import type { EventTemplate, VerifiedEvent } from 'nostr-tools/pure'
 import { createPool, restoreSigner } from '@cliprelay/shared'
 import { loadAuth } from '../store/auth-store'
+import { logConn } from '../nostr/connlog'
 import type { UniversalSigner } from './signer'
 
 const OP_TIMEOUT_MS = 20_000
+/** kick(선제 재생성) 최소 간격 — 사다리 churn 중 15초마다 재생성하는 낭비 방지 */
+const KICK_MIN_INTERVAL_MS = 60_000
 
 export class SignerTimeoutError extends Error {
   constructor(what: string) {
@@ -47,6 +50,7 @@ class ResilientBunkerSigner implements UniversalSigner {
   /** 우리가 만든 pool일 때만 보관 — 재생성 시 직접 destroy해야 하므로 */
   private innerPool: SimplePool | null
   private rebuilding: Promise<void> | null = null
+  private lastRebuildAt: number = 0
 
   constructor(inner: BunkerSigner, innerPool: SimplePool | null = null) {
     this.inner = inner
@@ -71,14 +75,40 @@ class ResilientBunkerSigner implements UniversalSigner {
     this.innerPool = null
   }
 
+  /**
+   * 연결이 의심될 때 외부(SyncEngine 사다리)에서 호출 — signer pool을 선제 재생성.
+   *
+   * 클립보드 pool은 probe+사다리로 좀비를 잡아내지만 signer pool엔 그런 감시가
+   * 없어서, 슬립 복귀 때 클립보드만 살아나고 signer는 좀비로 남는 사고가 났다
+   * (2026-08-11: 수신은 되는데 encrypt/decrypt만 실패). 사다리가 "연결을 못
+   * 믿겠다"고 판단한 시점이면 signer 연결도 못 믿는 게 맞다.
+   */
+  kick(reason: string): void {
+    const now = Date.now()
+    if (now - this.lastRebuildAt < KICK_MIN_INTERVAL_MS) return
+    console.warn(`[signer] kicked (${reason}) — rebuilding bunker signer`)
+    void this.rebuild().catch(err => console.warn('[signer] kick rebuild failed:', err))
+  }
+
   private async op<T>(what: string, fn: (s: BunkerSigner) => Promise<T>): Promise<T> {
     try {
       return await withTimeout(fn(this.inner), what)
     } catch (err) {
-      if (!(err instanceof SignerTimeoutError)) throw err
-      console.warn(`[signer] ${what} timed out — rebuilding bunker signer`)
+      // 타임아웃(20초 무응답)만이 아니라 빠른 실패도 rebuild 대상이다.
+      // 좀비 pool에선 publish가 4.4초 만에 AggregateError로 거절되는데, 이걸
+      // 타임아웃이 아니라고 그대로 던지면 rebuild가 영영 발동하지 않는다
+      // (2026-08-11 실사고). 진짜 bunker 거절(권한 등)이어도 rebuild 후 한 번 더
+      // 시도하고 같은 에러를 받게 되므로 손해는 중복 요청 1회뿐이다.
+      const kind = err instanceof SignerTimeoutError ? 'timeout' : 'error'
+      console.warn(`[signer] ${what} failed (${kind}) — rebuilding bunker signer:`, err)
+      logConn(`signer ${what} failed (${kind}) — rebuilding`)
       await this.rebuild()
-      return await withTimeout(fn(this.inner), `${what} (retry)`)
+      try {
+        return await withTimeout(fn(this.inner), `${what} (retry)`)
+      } catch (retryErr) {
+        logConn(`signer ${what} failed after rebuild`)
+        throw retryErr
+      }
     }
   }
 
@@ -102,7 +132,9 @@ class ResilientBunkerSigner implements UniversalSigner {
     const pool = createPool()
     this.inner = restoreSigner(auth.clientPrivkey, auth.signerPubkey, auth.signerRelays, pool)
     this.innerPool = pool
+    this.lastRebuildAt = Date.now()
     console.log('[signer] bunker signer rebuilt with fresh pool')
+    logConn('signer pool rebuilt')
   }
 }
 

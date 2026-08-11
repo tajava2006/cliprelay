@@ -6,9 +6,10 @@
  * - 릴레이: 기존 구독 pool의 연결 상태를 5초마다 폴링
  * - Blossom: URL만 표시 (실시간 연결 유지 대상 아님)
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { t } from '../i18n'
 import { publishClipboard } from '../nostr/publish'
+import { subscribeConnLog, getConnLogSnapshot } from '../nostr/connlog'
 import { toast } from '../toast'
 import { pubkeyToNpub } from '@cliprelay/shared'
 import type { UserProfile } from '@cliprelay/shared'
@@ -40,6 +41,8 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
   const [permissions, setPermissions] = useState<PermissionStatus | null>(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [logOpen, setLogOpen] = useState(false)
+  const connLog = useSyncExternalStore(subscribeConnLog, getConnLogSnapshot)
 
   const npub = pubkeyToNpub(userPubkey)
   const displayName = profile?.display_name || profile?.name || null
@@ -245,6 +248,25 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
         }
       </div>
 
+      {/* ─── Connection Log — 사다리/워치독/최후수단이 뭘 했는지 (관찰용) ─── */}
+      <div style={s.section}>
+        <button style={s.logToggle} onClick={() => setLogOpen(o => !o)}>
+          {logOpen ? '▾' : '▸'} {t('main.connlog')}
+        </button>
+        {logOpen && (
+          connLog.length === 0
+            ? <p style={s.muted}>{t('main.connlog.empty')}</p>
+            : <div style={s.logList}>
+                {connLog.map((e, i) => (
+                  <div key={`${e.ts}-${i}`} style={s.logRow}>
+                    <span style={s.logTime}>{formatLogTime(e.ts)}</span>
+                    <span style={s.logMsg}>{e.msg}{e.count > 1 ? ` ×${e.count}` : ''}</span>
+                  </div>
+                ))}
+              </div>
+        )}
+      </div>
+
       <button style={s.historyBtn} onClick={onShowHistory}>
         {t('main.history')}
       </button>
@@ -252,6 +274,9 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
       <button style={s.logoutBtn} onClick={onLogout}>
         {t('main.logout')}
       </button>
+
+      {/* 어느 빌드가 돌고 있는지 — 관찰/디버깅 식별용 */}
+      <p style={s.buildInfo}>v{__APP_VERSION__} · {__COMMIT_HASH__}</p>
     </div>
   )
 }
@@ -271,6 +296,13 @@ const statusColor = (status?: ConnStatus) => {
   if (status === 'ok') return '#2563eb'
   if (status === 'error') return '#d97706'
   return '#a3a3a3'
+}
+
+/** 로그는 며칠 치를 보게 되므로 날짜까지 표시 */
+const formatLogTime = (ts: number) => {
+  const d = new Date(ts)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 const s = {
@@ -401,6 +433,47 @@ const s = {
     whiteSpace: 'nowrap' as const,
   },
 
+  // ─── Connection Log ───
+  logToggle: {
+    display: 'block',
+    padding: 0,
+    background: 'transparent',
+    border: 'none',
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#888',
+    margin: '0 0 6px',
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+    cursor: 'pointer',
+  },
+  logList: {
+    maxHeight: 180,
+    overflowY: 'auto' as const,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 3,
+    padding: '8px 10px',
+    background: '#f8f8f8',
+    border: '1px solid #e5e5e5',
+    borderRadius: 8,
+  },
+  logRow: {
+    display: 'flex',
+    gap: 8,
+    fontSize: 11,
+    lineHeight: 1.5,
+  },
+  logTime: {
+    fontFamily: 'monospace',
+    color: '#999',
+    flexShrink: 0,
+  },
+  logMsg: {
+    color: '#555',
+    wordBreak: 'break-word' as const,
+  },
+
   // ─── Compose ───
   compose: {
     width: '100%',
@@ -528,6 +601,12 @@ const s = {
   },
   warn: { fontSize: 13, color: '#b45309', margin: 0 },
   muted: { fontSize: 13, color: '#aaa', margin: 0 },
+  buildInfo: {
+    fontSize: 10,
+    fontFamily: 'monospace',
+    color: '#bbb',
+    margin: '4px 0 0',
+  },
   historyBtn: {
     marginTop: 16,
     padding: '8px 24px',

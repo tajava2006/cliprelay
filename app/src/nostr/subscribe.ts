@@ -297,6 +297,12 @@ export function startClipboardSubscription(
             // 모든 릴레이가 EOSE 또는 실패로 응답을 마쳐야 발화 — 언데드가 있으면 안 옴
             oneose: () => done(true),
             onevent: () => {},
+            // ⚠️ 절대 제거 금지: nostr-tools Subscription은 릴레이가 무응답이어도
+            // eoseTimeout(기본 4.4초) 뒤 EOSE를 로컬에서 합성한다. 이 값을 우리
+            // 판정 타이머보다 길게 잡지 않으면 좀비 릴레이 위에서도 가짜 EOSE가
+            // 떠서 프로브가 영원히 true를 반환한다 (2026-08-09 실사고: 소켓 0개
+            // 상태로 몇 시간을 "정상" 오판 — 사다리 완전 침묵).
+            maxWait: timeoutMs + 2_000,
           },
         )
       }),

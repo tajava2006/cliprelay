@@ -17,3 +17,4 @@ nostr-tools
 # build outputs
 dist
 app/src-tauri/target
+.DS_Store

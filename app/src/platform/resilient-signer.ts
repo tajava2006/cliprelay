@@ -19,10 +19,23 @@
 import type { BunkerSigner } from 'nostr-tools/nip46'
 import type { SimplePool } from 'nostr-tools/pool'
 import type { EventTemplate, VerifiedEvent } from 'nostr-tools/pure'
-import { createPool, restoreSigner } from '@cliprelay/shared'
+import { createPool, restoreSigner, NIP46_BOOTSTRAP_RELAYS } from '@cliprelay/shared'
 import { loadAuth } from '../store/auth-store'
 import { logConn } from '../nostr/connlog'
 import type { UniversalSigner } from './signer'
+
+/**
+ * 세션 릴레이와 부트스트랩 릴레이의 합집합 — NIP-46 랑데부 그물을 넓게 친다.
+ *
+ * 실사고(2026-08-12): 저장된 signerRelays(로그인 때 switch_relays로 받은 Amber
+ * 선호 목록)의 유효 릴레이가 전부 죽자 요청이 Amber에 도달할 길 자체가 사라졌다.
+ * bp.relays는 발행과 응답 구독 양쪽에 쓰이므로, 여기에 부트스트랩(로그인 URI에
+ * 실려서 벙커도 이 세션용으로 알고 있는 릴레이들)을 합치면 죽은 릴레이가 있어도
+ * 남은 경로로 랑데부가 성립한다. 죽은 릴레이로의 발행 실패는 Promise.any가 무시.
+ */
+function widenRelays(sessionRelays: string[]): string[] {
+  return [...new Set([...sessionRelays, ...NIP46_BOOTSTRAP_RELAYS.map(r => r.replace(/\/?$/, '/'))])]
+}
 
 const OP_TIMEOUT_MS = 20_000
 /** kick(선제 재생성) 최소 간격 — 사다리 churn 중 15초마다 재생성하는 낭비 방지 */
@@ -130,11 +143,12 @@ class ResilientBunkerSigner implements UniversalSigner {
     try { this.innerPool?.destroy() } catch { /* ignore */ }
 
     const pool = createPool()
-    this.inner = restoreSigner(auth.clientPrivkey, auth.signerPubkey, auth.signerRelays, pool)
+    const relays = widenRelays(auth.signerRelays)
+    this.inner = restoreSigner(auth.clientPrivkey, auth.signerPubkey, relays, pool)
     this.innerPool = pool
     this.lastRebuildAt = Date.now()
-    console.log('[signer] bunker signer rebuilt with fresh pool')
-    logConn('signer pool rebuilt')
+    console.log('[signer] bunker signer rebuilt with fresh pool, relays:', relays)
+    logConn(`signer pool rebuilt (${relays.length} relays)`)
   }
 }
 
@@ -149,7 +163,7 @@ export function restoreResilientSigner(
 ): UniversalSigner {
   const pool = createPool()
   return new ResilientBunkerSigner(
-    restoreSigner(clientPrivkeyHex, signerPubkey, signerRelays, pool),
+    restoreSigner(clientPrivkeyHex, signerPubkey, widenRelays(signerRelays), pool),
     pool,
   )
 }

@@ -39,13 +39,22 @@ export function createConnectURI(clientSecretKey: Uint8Array): string {
   })
 }
 
-/** 벙커가 QR을 스캔할 때까지 대기 */
+/**
+ * 벙커가 QR을 스캔할 때까지 대기.
+ *
+ * skipSwitchRelays: 연결 직후 nostr-tools가 자동으로 switch_relays를 호출해
+ * 세션 릴레이를 벙커의 선호 목록으로 갈아치우는 걸 막는다. 실사고(2026-08-12):
+ * Amber가 넘겨준 선호 릴레이 중 실제 듣는 것들이 죽자(nsec.app 502, oxtr 다운)
+ * 세션 랑데부가 공집합이 돼 영구 불통 — 폰이 깨어있어도 요청 도달 불가.
+ * 우리가 검증한 부트스트랩 릴레이를 세션 릴레이로 유지하는 쪽이 안전하다
+ * (벙커는 어차피 URI에 실린 릴레이를 이 세션용으로 구독한다).
+ */
 export async function connectFromURI(
   clientSecretKey: Uint8Array,
   uri: string,
   signal: AbortSignal,
 ): Promise<BunkerSigner> {
-  return BunkerSigner.fromURI(clientSecretKey, uri, {}, signal)
+  return BunkerSigner.fromURI(clientSecretKey, uri, { skipSwitchRelays: true }, signal)
 }
 
 // ─── bunker:// URL 방식 ───────────────────────────────────────

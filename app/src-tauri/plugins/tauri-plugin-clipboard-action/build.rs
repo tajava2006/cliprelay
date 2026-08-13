@@ -4,6 +4,7 @@ const COMMANDS: &[&str] = &[
     "clear_pending_sync",
     "consume_pending_history",
     "write_image_to_clipboard",
+    "write_clipboard_text",
     "read_clipboard_text",
     "read_clipboard_image",
 ];

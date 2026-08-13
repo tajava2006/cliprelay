@@ -6,6 +6,7 @@ permissions = [
   "allow-clear-pending-sync",
   "allow-consume-pending-history",
   "allow-write-image-to-clipboard",
+  "allow-write-clipboard-text",
   "allow-read-clipboard-text",
   "allow-read-clipboard-image",
 ]

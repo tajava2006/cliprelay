@@ -19,6 +19,17 @@ class WriteImageArgs {
     var mimeType: String = "image/png"
 }
 
+@InvokeArg
+class WriteTextArgs {
+    lateinit var text: String
+    // 민감 정보(concealed) — true면 EXTRA_IS_SENSITIVE를 붙여서
+    // 키보드 클립보드 히스토리/미리보기가 이 항목을 민감하게 취급하도록 한다
+    var sensitive: Boolean = false
+}
+
+/** ClipDescription.EXTRA_IS_SENSITIVE (API 33 상수) — 하위 버전에서도 문자열은 무해 */
+private const val EXTRA_IS_SENSITIVE = "android.content.extra.IS_SENSITIVE"
+
 /**
  * 클립보드 액션 브릿지.
  *
@@ -99,11 +110,37 @@ class ClipboardActionPlugin(private val activity: Activity) : Plugin(activity) {
             val clipboard = activity.getSystemService(android.content.ClipboardManager::class.java)
             val clip = clipboard.primaryClip
             val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
+            val sensitive = clip?.description?.extras?.getBoolean(EXTRA_IS_SENSITIVE, false) ?: false
             result.put("text", text ?: "")
+            result.put("sensitive", sensitive)
         } catch (e: Exception) {
             result.put("text", "")
+            result.put("sensitive", false)
         }
         invoke.resolve(result)
+    }
+
+    /**
+     * 텍스트를 클립보드에 쓴다. sensitive면 EXTRA_IS_SENSITIVE 마커를 붙여
+     * 시스템/키보드 클립보드 히스토리가 민감 정보로 취급하게 한다 (API 33+에서
+     * 시스템이 존중, 이하 버전에선 무해한 no-op).
+     */
+    @Command
+    fun writeClipboardText(invoke: Invoke) {
+        val args = invoke.parseArgs(WriteTextArgs::class.java)
+        try {
+            val clipboard = activity.getSystemService(android.content.ClipboardManager::class.java)
+            val clip = android.content.ClipData.newPlainText("ClipRelay", args.text)
+            if (args.sensitive) {
+                clip.description.extras = android.os.PersistableBundle().apply {
+                    putBoolean(EXTRA_IS_SENSITIVE, true)
+                }
+            }
+            clipboard.setPrimaryClip(clip)
+            invoke.resolve()
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "clipboard write failed")
+        }
     }
 
     /**

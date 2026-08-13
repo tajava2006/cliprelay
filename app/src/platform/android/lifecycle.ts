@@ -75,12 +75,12 @@ export async function androidOnForeground(userPubkey: string, sync: SyncEngine):
 
     if (!published) {
       try {
-        const { text } = await invoke<{ text: string }>('plugin:clipboard-action|read_clipboard_text')
+        const { text, sensitive } = await invoke<{ text: string; sensitive?: boolean }>('plugin:clipboard-action|read_clipboard_text')
         if (text && text !== sync.getLastSyncedText()) {
           sync.setLastSyncedText(text)
           console.log('[sync] clipboard changed, publishing…')
           await publishClipboard(
-            { type: 'text', content: text },
+            { type: 'text', content: text, ...(sensitive ? { concealed: true } : {}) },
             writeRelays,
           ).catch(err => console.error('[sync] publish failed:', err))
         }

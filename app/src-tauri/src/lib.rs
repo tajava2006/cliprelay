@@ -10,8 +10,14 @@ use tauri::{
 #[cfg(target_os = "macos")]
 const CONCEALED_TYPE: &str = "org.nspasteboard.ConcealedType";
 
-/// 현재 클립보드에 concealed 마커가 있는가 (macOS 외 플랫폼은 항상 false — TODO:
-/// Windows ExcludeClipboardContentFromMonitorProcessing / KDE passwordManagerHint)
+/// Windows에서 클립보드 모니터/히스토리 제외를 뜻하는 등록 포맷 (MS 권장 규약)
+#[cfg(target_os = "windows")]
+const WIN_EXCLUDE_FORMAT: &str = "ExcludeClipboardContentFromMonitorProcessing";
+
+/// 현재 클립보드에 concealed 마커가 있는가.
+/// macOS: ConcealedType 타입 존재 / Windows: 제외 포맷 존재 /
+/// Linux: 감지 불가(항상 false — X11/Wayland 타깃 조회는 라이브러리 지원이 없다.
+/// 쓰기 방향의 KDE 힌트 전파는 지원함)
 #[tauri::command]
 fn clipboard_is_concealed() -> bool {
     #[cfg(target_os = "macos")]
@@ -23,7 +29,18 @@ fn clipboard_is_concealed() -> bool {
         }
         false
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::System::DataExchange::{
+            IsClipboardFormatAvailable, RegisterClipboardFormatW,
+        };
+        let name: Vec<u16> = WIN_EXCLUDE_FORMAT.encode_utf16().chain([0]).collect();
+        unsafe {
+            let fmt = RegisterClipboardFormatW(name.as_ptr());
+            fmt != 0 && IsClipboardFormatAvailable(fmt) != 0
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         false
     }
@@ -31,7 +48,8 @@ fn clipboard_is_concealed() -> bool {
 
 /// 텍스트를 concealed 마커와 함께 클립보드에 쓴다 — 받는 기기의 클립보드
 /// 매니저/히스토리도 이 항목을 민감 정보로 취급하게 된다.
-/// macOS 외에는 지원 안 함(Err) — 호출자가 일반 쓰기로 폴백한다.
+/// macOS: ConcealedType / Windows: 모니터 제외 포맷 / Linux: KDE 힌트.
+/// 실패 시 Err — 호출자가 일반 쓰기로 폴백한다.
 #[tauri::command]
 fn write_clipboard_text_concealed(text: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -53,7 +71,37 @@ fn write_clipboard_text_concealed(text: String) -> Result<(), String> {
             }
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        use arboard::{Clipboard, SetExtWindows};
+        let mut cb = Clipboard::new().map_err(|e| e.to_string())?;
+        // exclude_from_monitoring이 히스토리·클라우드까지 포괄한다 (arboard 문서상
+        // 이걸 쓰면 나머지 둘은 중복)
+        cb.set()
+            .exclude_from_monitoring()
+            .text(text)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use arboard::{Clipboard, SetExtLinux};
+        // X11/Wayland은 클립보드 소유 프로세스가 내용을 서빙하는 모델이라,
+        // Clipboard 객체가 drop되면 붙여넣기가 실패할 수 있다 — 전역으로 유지.
+        static CLIPBOARD: std::sync::Mutex<Option<Clipboard>> = std::sync::Mutex::new(None);
+        let mut guard = CLIPBOARD.lock().map_err(|e| e.to_string())?;
+        if guard.is_none() {
+            *guard = Some(Clipboard::new().map_err(|e| e.to_string())?);
+        }
+        // exclude_from_history = x-kde-passwordManagerHint("secret") MIME 동봉
+        guard
+            .as_mut()
+            .unwrap()
+            .set()
+            .exclude_from_history()
+            .text(text)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = text;
         Err("concealed clipboard write unsupported on this platform".into())

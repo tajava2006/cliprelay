@@ -36,3 +36,10 @@ tauri-plugin-keychain = { path = "plugins/tauri-plugin-keychain" }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+# macOS 전용: NSPasteboard 직접 접근 (concealed 마커 감지/전파 — clipboard-manager
+# 플러그인은 텍스트/이미지만 다루고 pasteboard 타입 목록을 노출하지 않는다)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
+

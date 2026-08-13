@@ -16,6 +16,8 @@ import type { ClipboardPayload } from '@cliprelay/shared'
 import { Image } from '@tauri-apps/api/image'
 import { getSigner } from '../platform/signer'
 import { writeClipboardText, writeClipboardImage } from '../clipboard/writer'
+import { writeClipboardTextConcealed } from '../platform/concealed'
+import { isOwnEvent } from './own-events'
 import { toast } from '../toast'
 import { t } from '../i18n'
 import { sendNotification, isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification'
@@ -87,14 +89,24 @@ async function processDesktopEvent(
   }
 
   let fingerprint: string | undefined
+  const concealed = payload.type === 'text' && payload.concealed === true
 
   if (payload.type === 'text') {
     try {
       onTextWritten(payload.content)
-      await writeClipboardText(payload.content)
-      toast(t('toast.clipboard.updated'), 'ok')
-      void notifyClipboardUpdated(t('toast.clipboard.updated'))
-      console.log('[subscribe] text received', event.id.slice(0, 8))
+      if (concealed) {
+        // 마커를 이쪽 클립보드에도 전파 — 이 기기의 클립보드 매니저/히스토리도
+        // 민감 정보로 취급하게 한다
+        await writeClipboardTextConcealed(payload.content)
+        toast(t('toast.clipboard.concealed'), 'ok')
+        void notifyClipboardUpdated(t('toast.clipboard.updated'))
+        console.log('[subscribe] concealed text received', event.id.slice(0, 8))
+      } else {
+        await writeClipboardText(payload.content)
+        toast(t('toast.clipboard.updated'), 'ok')
+        void notifyClipboardUpdated(t('toast.clipboard.updated'))
+        console.log('[subscribe] text received', event.id.slice(0, 8))
+      }
     } catch (err) {
       console.error('[subscribe] clipboard write failed:', err)
     }
@@ -113,6 +125,12 @@ async function processDesktopEvent(
     } catch (err) {
       console.error('[subscribe] file download failed:', err)
     }
+  }
+
+  if (concealed) {
+    // 받는 쪽 히스토리에도 남기지 않는다
+    console.log('[subscribe] concealed — skipping history')
+    return
   }
 
   await appendHistory({
@@ -172,8 +190,8 @@ export function startClipboardSubscription(
     while (eventQueue.length > 0) {
       const event = eventQueue.shift()!
       try {
-        // 발신 에코 감지
-        if (await hasHistoryId(event.id)) {
+        // 발신 에코 감지 — 인메모리(concealed 포함) 먼저, 히스토리(재시작 후) 다음
+        if (isOwnEvent(event.id) || (await hasHistoryId(event.id))) {
           console.log('[subscribe] own event echo, skipping:', event.id.slice(0, 8))
           continue
         }
@@ -185,8 +203,12 @@ export function startClipboardSubscription(
           try {
             const plaintext = await getSigner().nip44Decrypt(userPubkey, event.content)
             const payload = JSON.parse(plaintext) as ClipboardPayload
-            await appendHistory({ id: event.id, createdAt: event.created_at, payload })
-            console.log('[subscribe] android background — history saved:', event.id.slice(0, 8))
+            if (payload.type === 'text' && payload.concealed === true) {
+              console.log('[subscribe] android background — concealed, skipping history')
+            } else {
+              await appendHistory({ id: event.id, createdAt: event.created_at, payload })
+              console.log('[subscribe] android background — history saved:', event.id.slice(0, 8))
+            }
           } catch (err) {
             console.warn('[subscribe] android background decrypt/history failed:', err)
           }

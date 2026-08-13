@@ -4,6 +4,13 @@ export type ClipboardPayload = TextPayload | FilePayload
 export interface TextPayload {
   type: 'text'
   content: string
+  /**
+   * 원본 앱(비밀번호 매니저 등)이 클립보드에 "민감 정보" 마커를 붙였던 텍스트.
+   * 동기화는 하되 양쪽 히스토리에 남기지 않고, 받는 쪽 클립보드에도 마커를
+   * 전파하며, 릴레이 잔류(expiration)도 짧게 잡는다. 구버전 수신자는 이 필드를
+   * 모른 채 일반 텍스트로 취급한다(하위호환).
+   */
+  concealed?: boolean
 }
 
 export interface FilePayload {

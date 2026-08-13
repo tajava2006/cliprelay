@@ -13,6 +13,7 @@ import { readText, readImage } from '@tauri-apps/plugin-clipboard-manager'
 import { toast } from '../toast'
 import { t } from '../i18n'
 import { fingerprintRgba } from './fingerprint'
+import { isClipboardConcealed } from '../platform/concealed'
 
 const POLL_INTERVAL_MS = 500
 const IMAGE_POLL_EVERY_N = 3  // 텍스트 3번 폴링마다 이미지 1번
@@ -25,11 +26,12 @@ export interface ClipboardMonitor {
 
 /**
  * 클립보드 모니터를 시작한다.
- * @param onTextChange  텍스트가 변경됐을 때 호출
+ * @param onTextChange  텍스트가 변경됐을 때 호출. concealed = 원본 앱이 민감 정보
+ *                      마커를 붙인 복사(비밀번호 매니저 등)
  * @param onImageChange 이미지가 변경됐을 때 RGBA 바이트, 너비, 높이와 함께 호출
  */
 export function startClipboardMonitor(
-  onTextChange: (text: string) => void,
+  onTextChange: (text: string, concealed: boolean) => void,
   onImageChange: (rgba: Uint8Array, width: number, height: number) => void,
 ): ClipboardMonitor {
   let lastKnownText: string | null = null
@@ -48,9 +50,16 @@ export function startClipboardMonitor(
       if (text !== null && text !== lastKnownText) {
         lastKnownText = text
         if (initialized) {
-          console.log('[monitor] text changed:', text.slice(0, 40), text.length > 40 ? '...' : '')
-          toast(t('toast.clipboard.text'))
-          onTextChange(text)
+          const concealed = await isClipboardConcealed()
+          if (concealed) {
+            // 민감 정보는 내용 미리보기를 로그에도 안 남긴다
+            console.log('[monitor] concealed text changed, length:', text.length)
+            toast(t('toast.clipboard.concealed'))
+          } else {
+            console.log('[monitor] text changed:', text.slice(0, 40), text.length > 40 ? '...' : '')
+            toast(t('toast.clipboard.text'))
+          }
+          onTextChange(text, concealed)
         }
       }
     } catch {

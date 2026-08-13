@@ -375,9 +375,9 @@ export class SyncEngine {
   private async startMonitor(): Promise<void> {
     this.monitor?.stop()
     this.monitor = await startPlatformClipboardMonitor(
-      (text: string) => {
+      (text: string, concealed: boolean) => {
         void publishClipboard(
-          { type: 'text', content: text },
+          { type: 'text', content: text, ...(concealed ? { concealed: true } : {}) },
           this.writeRelays,
         ).catch(err => console.error('[monitor] text publish failed:', err))
       },

@@ -9,6 +9,7 @@
  */
 import { CLIPBOARD_KIND, CLIENT_TAG } from '@cliprelay/shared'
 import { getSharedPool } from './pool'
+import { noteOwnEvent } from './own-events'
 import type { ClipboardPayload } from '@cliprelay/shared'
 import { getSigner } from '../platform/signer'
 import { loadAuth } from '../store/auth-store'
@@ -72,22 +73,36 @@ export async function publishClipboard(
   toast(t('toast.encrypt.ok'), 'ok')
   console.log('[publish] encrypted, requesting signature')
 
+  // concealed는 릴레이 잔류도 짧게 — 전달 창구(수 분)만 확보하면 충분하다
+  const concealed = payload.type === 'text' && payload.concealed === true
+  const expirationS = concealed ? 600 : 86400
+
   const event = await signer.signEvent({
     kind: CLIPBOARD_KIND,
     content: ciphertext,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['client', CLIENT_TAG],
-      ['expiration', String(Math.floor(Date.now() / 1000) + 86400)],
+      ['expiration', String(Math.floor(Date.now() / 1000) + expirationS)],
     ],
   })
 
-  // 발행 전 미리 저장 — 릴레이 에코 수신 시 중복 처리(복호화·클립보드 쓰기·알림) 방지
-  await appendHistory({
-    id: event.id,
-    createdAt: event.created_at,
-    payload,
-  }).catch(err => console.error('[publish] history save failed:', err))
+  // 에코(자기 이벤트 재수신) 판별용 — 히스토리에 안 남는 concealed도 걸러야 하므로
+  // 인메모리 셋에도 항상 기록한다
+  noteOwnEvent(event.id)
+
+  if (concealed) {
+    // 민감 정보는 히스토리에 남기지 않는다 — 원본 앱이 붙인 "오래 남기지 마라"
+    // 마커를 전달 경로 끝까지 존중. 에코 방지는 위의 noteOwnEvent가 담당.
+    console.log('[publish] concealed text — skipping history')
+  } else {
+    // 발행 전 미리 저장 — 릴레이 에코 수신 시 중복 처리(복호화·클립보드 쓰기·알림) 방지
+    await appendHistory({
+      id: event.id,
+      createdAt: event.created_at,
+      payload,
+    }).catch(err => console.error('[publish] history save failed:', err))
+  }
 
   toast(t('toast.broadcast.start'))
   const pool = getSharedPool()

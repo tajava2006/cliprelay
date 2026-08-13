@@ -15,7 +15,7 @@ import { isAndroid } from './detect'
  * Android: 수동 트리거 대기 (noop 모니터 반환, 추후 Step 7에서 구현)
  */
 export async function startPlatformClipboardMonitor(
-  onTextChange: (text: string) => void,
+  onTextChange: (text: string, concealed: boolean) => void,
   onImageChange: (rgba: Uint8Array, width: number, height: number) => void,
 ): Promise<ClipboardMonitor> {
   if (isAndroid()) {

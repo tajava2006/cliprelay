@@ -59,17 +59,39 @@ export async function connectFromURI(
 
 // ─── bunker:// URL 방식 ───────────────────────────────────────
 
-/** 사용자가 붙여넣은 bunker:// URL로 연결 */
+/**
+ * 사용자가 붙여넣거나 QR로 스캔한 bunker:// URL로 연결.
+ *
+ * timeoutMs: nostr-tools connect()는 자체 타임아웃이 없어서 릴레이/벙커가
+ * 무응답이면 영원히 pending — UI가 '연결 중…'에 갇힌다. 여기서 잘라준다.
+ */
 export async function connectFromBunkerURL(
   clientSecretKey: Uint8Array,
   bunkerUrl: string,
+  timeoutMs = 60_000,
 ): Promise<BunkerSigner> {
   const bp = await parseBunkerInput(bunkerUrl)
   if (!bp) throw new Error('유효하지 않은 bunker URL입니다.')
   if (bp.relays.length === 0) throw new Error('bunker URL에 릴레이가 없습니다.')
   const signer = BunkerSigner.fromBunker(clientSecretKey, bp)
-  await signer.connect()
-  return signer
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      signer.connect(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('벙커 응답 대기 시간이 초과됐습니다. 서명 앱이 켜져 있는지 확인해 주세요.')),
+          timeoutMs,
+        )
+      }),
+    ])
+    return signer
+  } catch (err) {
+    void signer.close().catch(() => {})
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ─── 세션 복원 ───────────────────────────────────────────────

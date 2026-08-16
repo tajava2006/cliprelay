@@ -1,9 +1,14 @@
 /**
  * NIP-46 로그인 화면
  *
- * 두 가지 방식 지원:
- *   1. QR 코드 — nostrconnect:// URI를 표시, 벙커 앱(Amber 등)으로 스캔
- *   2. bunker URL — 벙커 앱에서 복사한 bunker:// URL 직접 입력
+ * 세 가지 방식 지원:
+ *   1. Amber — 같은 기기의 Amber와 Intent 직결 (Android + Amber 설치 시)
+ *   2. QR 코드 — nostrconnect:// URI를 표시, 벙커 앱(Amber 등)으로 스캔.
+ *      Android에서도 노출 — 다른 폰의 Amber로 스캔하면 그 폰 계정으로 로그인
+ *      (nsec는 그 폰 밖으로 안 나옴). 같은 기기에 Amber가 있으면 QR 탭으로
+ *      Intent 로그인도 가능.
+ *   3. bunker URL — 직접 붙여넣기, 또는 (Android) 카메라로 벙커 앱의
+ *      bunker URL QR을 스캔 — 비밀 토큰이 든 문자열을 메신저로 옮길 필요 없음.
  *
  * 로그인 성공 시 AuthState를 Tauri Store에 저장하고 onLogin() 콜백 호출.
  */
@@ -29,6 +34,7 @@ type LoginMode = 'qr' | 'bunker' | 'amber'
 type LoginPhase =
   | { status: 'idle' }
   | { status: 'waiting_qr'; uri: string }
+  | { status: 'scanning' }
   | { status: 'connecting' }
   | { status: 'error'; message: string }
 
@@ -45,8 +51,9 @@ export function Login({ onLogin }: LoginProps) {
   const [amberAvailable, setAmberAvailable] = useState<boolean | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const clientKeyRef = useRef<Uint8Array | null>(null)
+  const scanCancelledRef = useRef(false)
 
-  // Android: Amber 설치 여부 확인
+  // Android: Amber 설치 여부 확인 (미설치 시 QR 모드 — 다른 기기 벙커로 스캔 로그인)
   useEffect(() => {
     if (!isAndroid()) return
     void (async () => {
@@ -54,10 +61,10 @@ export function Login({ onLogin }: LoginProps) {
         const { isAmberInstalled } = await import('../platform/android/amber')
         const installed = await isAmberInstalled()
         setAmberAvailable(installed)
-        if (!installed) setMode('bunker')
+        if (!installed) setMode('qr')
       } catch {
         setAmberAvailable(false)
-        setMode('bunker')
+        setMode('qr')
       }
     })()
   }, [])
@@ -111,7 +118,9 @@ export function Login({ onLogin }: LoginProps) {
 
     const abort = new AbortController()
     abortRef.current = abort
-    setTimeout(() => abort.abort(), CONNECTION_TIMEOUT_MS)
+    // 타임아웃 abort와 탭 전환/언마운트 abort 구분 — 후자는 조용히 끝낸다
+    let timedOut = false
+    setTimeout(() => { timedOut = true; abort.abort() }, CONNECTION_TIMEOUT_MS)
 
     setPhase({ status: 'waiting_qr', uri })
 
@@ -120,7 +129,7 @@ export function Login({ onLogin }: LoginProps) {
       await finalizeLogin(signer, clientKey)
     } catch (err) {
       if (abort.signal.aborted) {
-        setPhase({ status: 'error', message: t('login.error.timeout') })
+        if (timedOut) setPhase({ status: 'error', message: t('login.error.timeout') })
       } else {
         setPhase({ status: 'error', message: err instanceof Error ? err.message : t('login.error.default') })
       }
@@ -134,23 +143,84 @@ export function Login({ onLogin }: LoginProps) {
 
   // ─── bunker:// URL 방식 ─────────────────────────────────────
 
-  const submitBunkerURL = useCallback(async () => {
+  const connectBunker = useCallback(
+    async (url: string) => {
+      abortRef.current?.abort()
+
+      const clientKey = clientKeyRef.current ?? generateClientKey()
+      clientKeyRef.current = clientKey
+
+      setPhase({ status: 'connecting' })
+      try {
+        const signer = await connectFromBunkerURL(clientKey, url)
+        await finalizeLogin(signer, clientKey)
+      } catch (err) {
+        setPhase({ status: 'error', message: err instanceof Error ? err.message : t('login.error.default') })
+      }
+    },
+    [finalizeLogin],
+  )
+
+  const submitBunkerURL = useCallback(() => {
     if (!bunkerInput.trim()) return
-    abortRef.current?.abort()
+    void connectBunker(bunkerInput.trim())
+  }, [bunkerInput, connectBunker])
 
-    const clientKey = clientKeyRef.current ?? generateClientKey()
-    clientKeyRef.current = clientKey
-
-    setPhase({ status: 'connecting' })
+  // Android: 벙커 앱이 보여주는 bunker URL QR을 카메라로 스캔 → 바로 연결.
+  // 비밀 토큰이 든 문자열을 메신저/메일로 옮기지 않기 위한 오프라인 전달 경로.
+  const startScan = useCallback(async () => {
+    scanCancelledRef.current = false
+    setPhase({ status: 'scanning' })
     try {
-      const signer = await connectFromBunkerURL(clientKey, bunkerInput.trim())
-      await finalizeLogin(signer, clientKey)
-    } catch (err) {
-      setPhase({ status: 'error', message: err instanceof Error ? err.message : t('login.error.default') })
+      const scanMod = await import('../platform/android/scan')
+      try {
+        const content = (await scanMod.scanQR()).trim()
+        if (!content.toLowerCase().startsWith('bunker://')) {
+          setPhase({ status: 'error', message: t('login.scan.error.invalid') })
+          return
+        }
+        setBunkerInput(content)
+        await connectBunker(content)
+      } catch (err) {
+        if (scanCancelledRef.current) {
+          setPhase({ status: 'idle' })
+        } else if (err instanceof scanMod.CameraPermissionError) {
+          setPhase({ status: 'error', message: t('login.scan.error.permission') })
+        } else {
+          setPhase({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+        }
+      }
+    } catch {
+      // 플러그인 모듈 로드 실패 (비-Android 등)
+      setPhase({ status: 'error', message: t('login.error.default') })
     }
-  }, [bunkerInput, finalizeLogin])
+  }, [connectBunker])
+
+  const cancelScanning = useCallback(async () => {
+    scanCancelledRef.current = true
+    const { cancelScan } = await import('../platform/android/scan')
+    await cancelScan()
+  }, [])
 
   // ─── 렌더 ──────────────────────────────────────────────────
+
+  // 카메라 스캔 중: 카메라 프리뷰가 WebView 뒤에 깔리므로 페이지 전체를
+  // 투명하게 두고 뷰파인더 프레임 + 취소 버튼만 그린다 (배경 투명화는 scan.ts).
+  if (phase.status === 'scanning') {
+    return (
+      <div style={s.scanRoot}>
+        <div style={s.scanFrame} />
+        <div style={s.scanBottom}>
+          <p style={s.scanHint}>{t('login.bunker.scan_hint')}</p>
+          <button style={s.button} onClick={() => void cancelScanning()}>
+            {t('login.scan.cancel')}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const canTapAmber = isAndroid() && amberAvailable === true
 
   return (
     <div style={s.root}>
@@ -165,11 +235,9 @@ export function Login({ onLogin }: LoginProps) {
               {t('login.tab.amber')}
             </button>
           )}
-          {!isAndroid() && (
-            <button style={{ ...s.tab, ...(mode === 'qr' ? s.tabActive : {}) }} onClick={() => setMode('qr')}>
-              {t('login.tab.qr')}
-            </button>
-          )}
+          <button style={{ ...s.tab, ...(mode === 'qr' ? s.tabActive : {}) }} onClick={() => setMode('qr')}>
+            {t('login.tab.qr')}
+          </button>
           <button style={{ ...s.tab, ...(mode === 'bunker' ? s.tabActive : {}) }} onClick={() => setMode('bunker')}>
             {t('login.tab.bunker')}
           </button>
@@ -194,10 +262,15 @@ export function Login({ onLogin }: LoginProps) {
           <>
             {phase.status === 'waiting_qr' && (
               <>
-                <div style={s.qrBox}>
+                <div
+                  style={{ ...s.qrBox, ...(canTapAmber ? { cursor: 'pointer' } : {}) }}
+                  onClick={canTapAmber ? loginWithAmber : undefined}
+                  role={canTapAmber ? 'button' : undefined}
+                >
                   <QRCodeSVG value={phase.uri} size={220} level="M" />
                 </div>
                 <p style={s.hint}>{t('login.qr.hint')}</p>
+                {canTapAmber && <p style={s.tapHint}>{t('login.qr.tap_amber')}</p>}
                 <details style={s.details}>
                   <summary style={s.summary}>{t('login.qr.copy_uri')}</summary>
                   <textarea
@@ -217,6 +290,15 @@ export function Login({ onLogin }: LoginProps) {
         {/* bunker URL 모드 */}
         {mode === 'bunker' && (
           <>
+            {isAndroid() && (
+              <button
+                style={s.scanButton}
+                onClick={() => void startScan()}
+                disabled={phase.status === 'connecting'}
+              >
+                {t('login.bunker.scan')}
+              </button>
+            )}
             <textarea
               style={s.input}
               placeholder={t('login.bunker.placeholder')}
@@ -238,7 +320,10 @@ export function Login({ onLogin }: LoginProps) {
         {phase.status === 'error' && (
           <div style={s.errorBox}>
             <p style={s.errorMsg}>{phase.message}</p>
-            <button style={s.button} onClick={mode === 'qr' ? startQR : submitBunkerURL}>
+            <button
+              style={s.button}
+              onClick={mode === 'qr' ? startQR : mode === 'amber' ? loginWithAmber : submitBunkerURL}
+            >
               {t('login.retry')}
             </button>
           </div>
@@ -287,6 +372,7 @@ const s = {
     marginBottom: 16,
   },
   hint: { fontSize: 14, color: '#444', margin: '0 0 12px', fontWeight: 500 },
+  tapHint: { fontSize: 12, color: '#888', margin: '-6px 0 12px' },
   details: { textAlign: 'left' as const, marginBottom: 16 },
   summary: { fontSize: 12, color: '#999', cursor: 'pointer' },
   uriText: {
@@ -329,4 +415,51 @@ const s = {
   },
   errorBox: { paddingTop: 16 },
   errorMsg: { fontSize: 13, color: '#b91c1c', margin: '0 0 16px', lineHeight: 1.6 },
+  scanButton: {
+    width: '100%',
+    padding: '10px 28px',
+    fontSize: 14,
+    fontWeight: 600,
+    background: '#fff',
+    color: '#111',
+    border: '1px solid #111',
+    borderRadius: 8,
+    cursor: 'pointer',
+    marginBottom: 12,
+    boxSizing: 'border-box' as const,
+  },
+  scanRoot: {
+    position: 'fixed' as const,
+    inset: 0,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    background: 'transparent',
+  },
+  scanFrame: {
+    width: '64vmin',
+    aspectRatio: '1',
+    border: '2px solid rgba(255,255,255,0.9)',
+    borderRadius: 16,
+    // 프레임 밖 전체를 어둡게 — 카메라 프리뷰는 뒤에서 그대로 비침
+    boxShadow: '0 0 0 200vmax rgba(0,0,0,0.4)',
+  },
+  scanBottom: {
+    position: 'fixed' as const,
+    bottom: 40,
+    left: 0,
+    right: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    gap: 12,
+  },
+  scanHint: {
+    fontSize: 14,
+    color: '#fff',
+    margin: 0,
+    textShadow: '0 1px 3px rgba(0,0,0,0.8)',
+    padding: '0 24px',
+    textAlign: 'center' as const,
+  },
 } as const

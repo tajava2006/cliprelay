@@ -7,7 +7,10 @@ AI 코딩 어시스턴트가 이 코드베이스를 다룰 때 참조하는 지�
 **ClipRelay** — 내 제어하에 있는 기기들의 클립보드를 자동으로 통일하는 툴.
 Ctrl+C / Cmd+C 하는 것만으로 다른 기기에서 Ctrl+V / Cmd+V 가 되어야 한다.
 모든 기기간 통신은 **Nostr 릴레이**를 통하고, 콘텐츠는 **NIP-44**로 자기 자신에게 암호화한다.
-인증은 **NIP-46 (bunker, QR코드 방식)** 을 사용한다. Android에서는 **Amber Intent** 우선, 폴백으로 NIP-46.
+인증은 **NIP-46 (bunker, QR코드 방식)** 을 사용한다. Android에서는 **Amber Intent** 우선이지만
+QR(nostrconnect) 로그인도 항상 노출 — 다른 폰의 Amber로 스캔하면 그 폰 계정으로 로그인 가능
+(nsec 단일 보관 원칙). bunker URL은 붙여넣기 외에 **카메라 QR 스캔**(barcode-scanner 플러그인,
+Android 전용)으로도 입력 가능.
 파일(텍스트 외) 전송은 **Blossom (BUD-02)** 서버를 통한다.
 
 **Phase 1**: 데스크탑 (Mac / Windows / Linux) — GUI 앱 + 시스템 트레이 (완료)

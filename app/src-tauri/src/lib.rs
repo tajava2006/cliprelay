@@ -125,6 +125,9 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_action::init())
         .plugin(tauri_plugin_keychain::init());
 
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())

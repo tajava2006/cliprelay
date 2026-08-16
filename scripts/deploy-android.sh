@@ -4,9 +4,10 @@ set -euo pipefail
 # Android release APK 빌드 → USB 기기 전송
 # Usage: ./scripts/deploy-android.sh
 
-export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-export NDK_HOME="$ANDROID_HOME/ndk/29.0.13846066"
+# 이 머신 실제 설치 경로 (CI는 JDK 21 + NDK 27 — release-android.yml 참조)
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 
 APK_PATH="app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
 DEVICE_PATH="/sdcard/Download/cliprelay.apk"

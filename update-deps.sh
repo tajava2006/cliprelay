@@ -17,8 +17,8 @@ pnpm up --latest -r
 echo "== Rust =="
 (cd app/src-tauri && cargo update)
 
-echo "== @tauri-apps/api 중복 확인 =="
-pnpm why -r @tauri-apps/api 2>/dev/null | grep -E "@tauri-apps/api [0-9]" | sort -u || true
+echo "== @tauri-apps/api 중복 확인 (한 줄이어야 함) =="
+find node_modules/.pnpm -maxdepth 1 -name "@tauri-apps+api@*" | sed 's/.*api@/  /'
 
 echo "== 프론트 빌드 검증 (tsc + vite) =="
 pnpm build

@@ -9,6 +9,7 @@
  */
 import {
   subscribeWriteRelays, subscribeBlossomServers, subscribeProfile, NIP65_DISCOVERY_RELAYS,
+  clearRelayBackoff,
 } from '@cliprelay/shared'
 import type { UserProfile } from '@cliprelay/shared'
 import { saveWriteRelays } from '../store/relay-store'
@@ -110,6 +111,8 @@ export class SyncEngine {
   private probeInFlight: boolean = false
   /** 최후수단(오라클 체크 포함) 중복 실행 방지 */
   private lastResortInFlight: boolean = false
+  /** 이번 죽음 구간에서 최후수단 직전의 백오프 해제를 이미 썼는가 */
+  private backoffClearedForLastResort: boolean = false
 
   constructor(opts: SyncEngineOpts) {
     this.userPubkey = opts.userPubkey
@@ -245,6 +248,7 @@ export class SyncEngine {
         logConn(`recovered after ${this.deadTicks} dead check(s)`)
       }
       this.deadTicks = 0
+      this.backoffClearedForLastResort = false
       noteRecovered()
 
       // 진짜 살아있음 — 일부 릴레이만 죽은 경우는 느린 주기로만 복구
@@ -271,7 +275,18 @@ export class SyncEngine {
    */
   private escalate(): void {
     this.deadTicks++
-    if (this.deadTicks >= LAST_RESORT_AFTER_TICKS && !this.lastResortInFlight) {
+    if (
+      this.deadTicks >= LAST_RESORT_AFTER_TICKS &&
+      !this.backoffClearedForLastResort &&
+      clearRelayBackoff(this.writeRelays)
+    ) {
+      // 최후수단(리로드/재시작)은 "인터넷은 되는데 WebSocket만 안 된다"가 근거인데,
+      // 백오프 중엔 접속을 시도조차 안 했을 수 있다 — 우리가 안 두드린 걸 WebKit
+      // 고장으로 오판하면 안 된다. 죽음 구간당 한 번, 백오프를 풀고 이번 tick의
+      // hardReset으로 진짜 시도를 하게 한 뒤 다음 tick에 판단한다.
+      this.backoffClearedForLastResort = true
+      logConn('last resort deferred: retrying past backoff first')
+    } else if (this.deadTicks >= LAST_RESORT_AFTER_TICKS && !this.lastResortInFlight) {
       this.lastResortInFlight = true
       void tryLastResort(this.writeRelays)
         .catch(err => console.error('[sync] last resort failed:', err))
@@ -418,8 +433,16 @@ export class SyncEngine {
   private startWatchdog(): void {
     this.watchdogCleanup?.()
     this.watchdogCleanup = startWatchdog({
-      onWake: driftMs => this.forceReconnect(`wake after ${Math.round(driftMs / 1000)}s`),
-      onOnline: () => this.forceReconnect('network online'),
+      // 슬립 복귀·네트워크 복구는 "조건이 바뀌었다"는 신호다 — 그 전에 쌓인
+      // 접속 백오프는 더 이상 근거가 없으므로 걷어내고 바로 붙는다.
+      onWake: driftMs => {
+        clearRelayBackoff()
+        this.forceReconnect(`wake after ${Math.round(driftMs / 1000)}s`)
+      },
+      onOnline: () => {
+        clearRelayBackoff()
+        this.forceReconnect('network online')
+      },
     })
   }
 }

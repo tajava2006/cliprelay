@@ -10,32 +10,16 @@
  *    (= 화면은 초록불인데 수신은 안 되는 상태를 만든다).
  *    조회는 부작용 없는 peekRelay()로 한다.
  */
-import { SimplePool } from 'nostr-tools/pool'
-import type { AbstractRelay } from 'nostr-tools/abstract-relay'
-import { normalizeURL } from 'nostr-tools/utils'
+import { createPool, type GuardedPool } from '@cliprelay/shared'
 
 /** 클립보드 구독 라벨. nostr-tools가 구독 id를 `<label>:<serial>`로 만든다. */
 export const CLIPBOARD_SUB_LABEL = 'clipboard'
 
-class AppPool extends SimplePool {
-  /** 부작용 없이 pool 내부 relay 조회. 연결을 새로 만들지 않는다. */
-  peekRelay(url: string): AbstractRelay | undefined {
-    return this.relays.get(normalizeURL(url))
-  }
-}
+let pool: GuardedPool | null = null
 
-let pool: AppPool | null = null
-
-/** 앱 전체 공유 SimplePool 반환. 최초 호출 시 생성. */
-export function getSharedPool(): AppPool {
-  if (!pool) {
-    pool = new AppPool({ enablePing: true, enableReconnect: true })
-    // ⚠️ 절대 지우지 말 것 — 상시 연결이 목적이라 유휴 자동종료를 꺼야 한다.
-    // nostr-tools 2.23.11+ 기본값 20초 + ping 회계 버그 조합으로, 아무 활동 없는
-    // 유휴 상태에서 구독이 통째로 죽고 재연결도 안 된다. 자세한 이유는
-    // shared/src/pool.ts의 createPool() 주석 참고.
-    pool.idleTimeout = 0
-  }
+/** 앱 전체 공유 pool 반환. 최초 호출 시 생성. 설정은 shared의 createPool() 참고. */
+export function getSharedPool(): GuardedPool {
+  if (!pool) pool = createPool()
   return pool
 }
 

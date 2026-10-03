@@ -310,9 +310,14 @@ export function startClipboardSubscription(
           try { probeSub.close() } catch { /* ignore */ }
           resolve(ok)
         }
+        // 살아있다고 믿는 릴레이만 찌른다. 프로브의 목적은 "connected라는데 진짜냐"의
+        // 검증이지 죽은 릴레이 재접속이 아니다 — 전체 목록을 찌르면 죽은(혹은 우리를
+        // 차단한) 릴레이에 15초마다 새 접속을 시도하게 된다. 복구는 repair/사다리 몫.
+        const live = writeRelays.filter(url => relayHasLiveSubscription(url, CLIPBOARD_SUB_LABEL))
+        if (live.length === 0) { resolve(false); return }
         const timer = setTimeout(() => done(false), timeoutMs)
         const probeSub = pool.subscribeMany(
-          writeRelays,
+          live,
           { ids: [PROBE_DUMMY_ID], limit: 0 },
           {
             label: '<liveness>',

@@ -39,6 +39,8 @@ const en: Messages = {
   // Main
   'main.relays': 'Write Relays',
   'main.relays.empty': 'kind:10002 not found — Please configure relays in your Nostr client.',
+  'main.signerRelays': 'Signer Relays (NIP-46)',
+  'main.signerRelays.allDown': 'No signer relay is reachable — encryption and decryption will fail until one comes back.',
   'main.blossom': 'Blossom Servers',
   'main.blossom.empty': 'kind:10063 not found — File sync disabled',
   'main.history': 'History',
@@ -119,6 +121,8 @@ const ko: Messages = {
 
   'main.relays': '쓰기 릴레이',
   'main.relays.empty': 'kind:10002 없음 — Nostr 클라이언트에서 릴레이를 설정해 주세요.',
+  'main.signerRelays': '서명 릴레이 (NIP-46)',
+  'main.signerRelays.allDown': '연결된 서명 릴레이가 없습니다 — 하나라도 돌아올 때까지 암호화·복호화가 실패합니다.',
   'main.blossom': 'Blossom 서버',
   'main.blossom.empty': 'kind:10063 없음 — 파일 동기화 비활성',
   'main.history': '히스토리',

@@ -19,6 +19,7 @@
 import type { BunkerSigner } from 'nostr-tools/nip46'
 import type { SimplePool } from 'nostr-tools/pool'
 import type { EventTemplate, VerifiedEvent } from 'nostr-tools/pure'
+import { normalizeURL } from 'nostr-tools/utils'
 import { createPool, restoreSigner, NIP46_BOOTSTRAP_RELAYS } from '@cliprelay/shared'
 import { loadAuth } from '../store/auth-store'
 import { logConn } from '../nostr/connlog'
@@ -86,6 +87,25 @@ class ResilientBunkerSigner implements UniversalSigner {
     void this.inner.close().catch(() => {})
     try { this.innerPool?.destroy() } catch { /* ignore */ }
     this.innerPool = null
+  }
+
+  /**
+   * 세션 릴레이별 소켓 연결 여부. 부작용 없음(연결을 새로 만들지 않는다).
+   *
+   * 소켓이 붙어 있다고 벙커가 그 릴레이를 듣고 있다는 보장은 없지만, 반대는
+   * 확실하다 — 전부 끊겨 있으면 서명·복호화 요청이 나갈 길이 없다.
+   */
+  getRelayStatus(): Record<string, boolean> {
+    // 로그인 직후의 signer는 nostr-tools가 만든 내부 pool을 쓴다 (타입상 private)
+    const pool = this.innerPool ?? (this.inner as unknown as { pool?: SimplePool }).pool
+    const live = pool?.listConnectionStatus() ?? new Map<string, boolean>()
+    const status: Record<string, boolean> = {}
+    for (const url of this.inner.bp.relays) {
+      let key = url
+      try { key = normalizeURL(url) } catch { /* 그대로 */ }
+      status[url] = live.get(key) === true
+    }
+    return status
   }
 
   /**

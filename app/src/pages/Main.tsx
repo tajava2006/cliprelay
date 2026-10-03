@@ -13,6 +13,7 @@ import { subscribeConnLog, getConnLogSnapshot } from '../nostr/connlog'
 import { toast } from '../toast'
 import { pubkeyToNpub } from '@cliprelay/shared'
 import type { UserProfile } from '@cliprelay/shared'
+import { getSignerRelayStatus } from '../platform/signer'
 import { isAndroid } from '../platform/detect'
 import {
   getPermissionStatus,
@@ -38,6 +39,7 @@ const POLL_INTERVAL_MS = 5000
 
 export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowHistory, onLogout, getRelayStatus }: MainProps) {
   const [relayStatus, setRelayStatus] = useState<Record<string, ConnStatus>>({})
+  const [signerRelayStatus, setSignerRelayStatus] = useState<Record<string, boolean>>({})
   const [permissions, setPermissions] = useState<PermissionStatus | null>(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -83,6 +85,7 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
 
     const poll = async () => {
       if (stopped) return
+      setSignerRelayStatus(getSignerRelayStatus())
       const status = await getRelayStatus()
       if (stopped) return
       const next: Record<string, ConnStatus> = {}
@@ -235,6 +238,25 @@ export function Main({ userPubkey, writeRelays, blossomServers, profile, onShowH
             ))
         }
       </div>
+
+      {/* NIP-46 signer 릴레이 — 클립보드 릴레이와 별개 집합. 수신은 되는데 복호화만
+          실패하면 여기가 죽은 것이다. Amber Intent(릴레이 미사용)면 섹션 자체를 숨긴다. */}
+      {Object.keys(signerRelayStatus).length > 0 && (
+        <div style={s.section}>
+          <h3 style={s.sectionTitle}>{t('main.signerRelays')}</h3>
+          {Object.entries(signerRelayStatus).map(([relay, ok]) => (
+            <div key={relay} style={s.serverRow}>
+              <span style={s.statusMark(ok ? 'ok' : 'error')} aria-label={ok ? 'ok' : 'error'}>
+                {statusGlyph(ok ? 'ok' : 'error')}
+              </span>
+              <span style={s.serverUrl}>{relay.replace(/^wss?:\/\//, '').replace(/\/$/, '')}</span>
+            </div>
+          ))}
+          {Object.values(signerRelayStatus).every(ok => !ok) && (
+            <p style={s.warn}>{t('main.signerRelays.allDown')}</p>
+          )}
+        </div>
+      )}
 
       <div style={s.section}>
         <h3 style={s.sectionTitle}>{t('main.blossom')}</h3>

@@ -23,6 +23,8 @@ export interface UniversalSigner {
   close?(): void
   /** 연결이 의심될 때 선제 재생성 (ResilientBunkerSigner만 구현, Amber는 무관) */
   kick?(reason: string): void
+  /** NIP-46 세션 릴레이별 소켓 연결 여부 (ResilientBunkerSigner만 구현) */
+  getRelayStatus?(): Record<string, boolean>
 }
 
 let _signer: UniversalSigner | null = null
@@ -52,4 +54,15 @@ export function hasSigner(): boolean {
  */
 export function kickSigner(reason: string): void {
   try { _signer?.kick?.(reason) } catch { /* ignore */ }
+}
+
+/**
+ * NIP-46 signer 릴레이별 연결 여부 — 화면 표시용.
+ *
+ * 클립보드 릴레이(kind:10002)와는 별개의 집합이다. 수신은 되는데 복호화만
+ * 실패하는 경우는 대개 이쪽이 죽은 것이라, 쓰기 릴레이 옆에 같이 보여야
+ * 원인이 바로 보인다. signer가 릴레이를 쓰지 않으면(Amber Intent) 빈 객체.
+ */
+export function getSignerRelayStatus(): Record<string, boolean> {
+  try { return _signer?.getRelayStatus?.() ?? {} } catch { return {} }
 }

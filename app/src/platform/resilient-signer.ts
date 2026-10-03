@@ -35,7 +35,14 @@ import type { UniversalSigner } from './signer'
  * 남은 경로로 랑데부가 성립한다. 죽은 릴레이로의 발행 실패는 Promise.any가 무시.
  */
 function widenRelays(sessionRelays: string[]): string[] {
-  return [...new Set([...sessionRelays, ...NIP46_BOOTSTRAP_RELAYS.map(r => r.replace(/\/?$/, '/'))])]
+  // 양쪽을 같은 정규형으로 맞춘 뒤 합친다. 저장된 세션 릴레이는 슬래시 없이
+  // (`wss://relay.example`), 부트스트랩은 슬래시를 붙여 넣던 탓에 같은 릴레이가
+  // 두 번 들어가 3개가 6개로 보였다 — 중복분 발행은 nostr-tools가 "duplicate url"로
+  // 거절하므로 동작엔 지장이 없었지만 목록이 거짓말을 했다.
+  return [...new Set([...sessionRelays, ...NIP46_BOOTSTRAP_RELAYS].map(canonicalRelay))]
+}
+function canonicalRelay(url: string): string {
+  try { return normalizeURL(url) } catch { return url }
 }
 
 const OP_TIMEOUT_MS = 20_000

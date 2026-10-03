@@ -43,6 +43,10 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # 액션 기본값은 'tools platform-tools'인데, 'tools'는 폐기된 패키지라
+          # 저장소에서 사라져 sdkmanager가 실패한다 (2026-10).
+          packages: platform-tools
 
       - name: Install Android NDK
         run: sdkmanager "ndk;27.0.12077973"

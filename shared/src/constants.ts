@@ -30,11 +30,15 @@ export const BLOSSOM_AUTH_KIND = 24242
  * 랑데부 그물을 넓힌다 (2026-08-12: 벙커 선호 릴레이 전멸로 영구 불통 사고).
  * 여기를 바꿀 땐 "벙커가 이 세션에서 알고 있는 릴레이"라는 성질이 깨지지
  * 않는지(기존 세션은 재페어링 전까지 옛 목록으로 랑데부) 유의.
+ *
+ * 고르는 기준: kind 24133(ephemeral)을 인증·결제 없이 받고 전달할 것, 그리고
+ * 상시 접속하는 클라이언트에 관대할 것. 2026-10까지 쓰던 nsec.app(상시 불안정) /
+ * damus / nos.lol(재접속이 잦은 IP를 차단)은 그래서 뺐다.
  */
 export const NIP46_BOOTSTRAP_RELAYS = [
-  'wss://relay.nsec.app',
-  'wss://relay.damus.io',
-  'wss://nos.lol',
+  'wss://relay.primal.net',
+  'wss://relay.wisp.talk',
+  'wss://nostr.bitcoiner.social',
 ]
 
 /** RELAY_LIST_KIND 이벤트를 보유한 well-known 디스커버리 릴레이 (purplepag.es) */

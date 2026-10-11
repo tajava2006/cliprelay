@@ -35,11 +35,15 @@ export const BLOSSOM_AUTH_KIND = 24242
  * 상시 접속하는 클라이언트에 관대할 것. 2026-10까지 쓰던 nsec.app(상시 불안정) /
  * damus / nos.lol(재접속이 잦은 IP를 차단)은 그래서 뺐다.
  * nostr.bitcoiner.social도 뺐다(2026-10-11): REQ에 EOSE를 돌려주지 않게 됐다.
+ * 같은 날 primal(체감상 불안정)과 offchain.pub도 뺐다. offchain.pub은 IP당
+ * 동시 연결을 1개만 받는다(실측: 둘째 소켓부터 핸드셰이크 거절) — 같은 공유기
+ * 뒤의 데스크탑·폰·서명기가 한 릴레이에서 만나야 하는 랑데부엔 못 쓴다.
+ * 후보를 고를 땐 왕복 전달뿐 아니라 "한 IP에서 소켓 여러 개"도 재볼 것.
  */
 export const NIP46_BOOTSTRAP_RELAYS = [
-  'wss://relay.primal.net',
   'wss://relay.wisp.talk',
-  'wss://offchain.pub',
+  'wss://relay.ditto.pub',
+  'wss://relay.coinos.io',
 ]
 
 /** RELAY_LIST_KIND 이벤트를 보유한 well-known 디스커버리 릴레이 (purplepag.es) */

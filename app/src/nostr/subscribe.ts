@@ -111,7 +111,12 @@ async function processDesktopEvent(
       console.log('[subscribe] file download starting:', payload.filename, payload.mimeType)
       const pngBytes = await downloadAndDecrypt(payload.url, payload.sha256, payload.key, payload.iv)
       const img = await Image.fromBytes(pngBytes)
-      const [rgba, size] = await Promise.all([img.rgba(), img.size()])
+      let rgba: Uint8Array, size: { width: number; height: number }
+      try {
+        ;[rgba, size] = await Promise.all([img.rgba(), img.size()])
+      } finally {
+        void img.close().catch(() => {})
+      }
       fingerprint = fingerprintRgba(rgba, size.width, size.height)
       onImageWritten(fingerprint, pngBytes)
       await writeClipboardImage(pngBytes)

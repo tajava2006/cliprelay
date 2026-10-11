@@ -13,7 +13,7 @@ import { readText, readImage } from '@tauri-apps/plugin-clipboard-manager'
 import { toast } from '../toast'
 import { t } from '../i18n'
 import { fingerprintRgba } from './fingerprint'
-import { isClipboardConcealed } from '../platform/concealed'
+import { isClipboardConcealed, clipboardHasFiles } from '../platform/concealed'
 
 const POLL_INTERVAL_MS = 500
 const IMAGE_POLL_EVERY_N = 3  // 텍스트 3번 폴링마다 이미지 1번
@@ -44,6 +44,14 @@ export function startClipboardMonitor(
     if (stopped) return
     tick++
 
+    // 파일 복사는 대상이 아니다 — 같이 실려 오는 파일명 텍스트/아이콘 이미지를
+    // 읽지도 기억하지도 않고 이번 틱을 통째로 넘긴다.
+    if (await clipboardHasFiles()) {
+      initialized = true
+      if (!stopped) setTimeout(poll, POLL_INTERVAL_MS)
+      return
+    }
+
     // 텍스트 폴링
     try {
       const text = await readText()
@@ -70,7 +78,14 @@ export function startClipboardMonitor(
     if (tick % IMAGE_POLL_EVERY_N === 0) {
       try {
         const img = await readImage()
-        const [rgba, size] = await Promise.all([img.rgba(), img.size()])
+        let rgba: Uint8Array, size: { width: number; height: number }
+        try {
+          ;[rgba, size] = await Promise.all([img.rgba(), img.size()])
+        } finally {
+          // readImage는 부를 때마다 RGBA 사본을 Rust 리소스 테이블에 등록한다 —
+          // 닫지 않으면 이미지가 클립보드에 있는 동안 폴링마다 한 장씩 샌다.
+          void img.close().catch(() => {})
+        }
         const fp = fingerprintRgba(rgba, size.width, size.height)
         if (fp !== lastKnownImageFp) {
           lastKnownImageFp = fp

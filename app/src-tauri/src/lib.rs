@@ -46,6 +46,56 @@ fn clipboard_is_concealed() -> bool {
     }
 }
 
+/// X11/Wayland은 클립보드 소유 프로세스가 내용을 서빙하는 모델이라,
+/// Clipboard 객체가 drop되면 붙여넣기가 실패할 수 있다 — 전역으로 유지.
+#[cfg(target_os = "linux")]
+static LINUX_CLIPBOARD: std::sync::Mutex<Option<arboard::Clipboard>> =
+    std::sync::Mutex::new(None);
+
+/// 현재 클립보드에 파일(파일 관리자에서 복사한 항목)이 실려 있는가.
+/// 파일 복사는 동기화 대상이 아닌데, OS가 같이 올리는 텍스트 표현(파일명/경로)과
+/// 이미지 표현(아이콘/썸네일)이 일반 복사로 읽혀 나간다 — 모니터가 이걸로 걸러낸다.
+/// macOS: file-url 타입 존재 / Windows: CF_HDROP / Linux: text/uri-list 조회.
+/// 실패 시 false(평소대로 동기화).
+#[tauri::command(async)]
+fn clipboard_has_files() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::NSPasteboard;
+        let pb = NSPasteboard::generalPasteboard();
+        if let Some(types) = pb.types() {
+            return types.iter().any(|t| {
+                let t = t.to_string();
+                t == "public.file-url" || t == "NSFilenamesPboardType"
+            });
+        }
+        false
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::System::DataExchange::IsClipboardFormatAvailable;
+        const CF_HDROP: u32 = 15;
+        unsafe { IsClipboardFormatAvailable(CF_HDROP) != 0 }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(mut guard) = LINUX_CLIPBOARD.lock() else {
+            return false;
+        };
+        if guard.is_none() {
+            *guard = arboard::Clipboard::new().ok();
+        }
+        match guard.as_mut() {
+            Some(cb) => cb.get().file_list().map(|l| !l.is_empty()).unwrap_or(false),
+            None => false,
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        false
+    }
+}
+
 /// 텍스트를 concealed 마커와 함께 클립보드에 쓴다 — 받는 기기의 클립보드
 /// 매니저/히스토리도 이 항목을 민감 정보로 취급하게 된다.
 /// macOS: ConcealedType / Windows: 모니터 제외 포맷 / Linux: KDE 힌트.
@@ -85,10 +135,7 @@ fn write_clipboard_text_concealed(text: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         use arboard::{Clipboard, SetExtLinux};
-        // X11/Wayland은 클립보드 소유 프로세스가 내용을 서빙하는 모델이라,
-        // Clipboard 객체가 drop되면 붙여넣기가 실패할 수 있다 — 전역으로 유지.
-        static CLIPBOARD: std::sync::Mutex<Option<Clipboard>> = std::sync::Mutex::new(None);
-        let mut guard = CLIPBOARD.lock().map_err(|e| e.to_string())?;
+        let mut guard = LINUX_CLIPBOARD.lock().map_err(|e| e.to_string())?;
         if guard.is_none() {
             *guard = Some(Clipboard::new().map_err(|e| e.to_string())?);
         }
@@ -113,6 +160,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             clipboard_is_concealed,
+            clipboard_has_files,
             write_clipboard_text_concealed
         ])
         .plugin(tauri_plugin_store::Builder::default().build())

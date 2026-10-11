@@ -23,5 +23,9 @@ export async function writeClipboardImage(pngBytes: Uint8Array): Promise<void> {
     return
   }
   const image = await Image.fromBytes(pngBytes)
-  await writeImage(image)
+  try {
+    await writeImage(image)
+  } finally {
+    void image.close().catch(() => {})
+  }
 }

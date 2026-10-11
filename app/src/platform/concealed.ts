@@ -27,6 +27,20 @@ export async function isClipboardConcealed(): Promise<boolean> {
 }
 
 /**
+ * 현재 클립보드에 파일(파일 관리자에서 복사한 항목)이 실려 있는가.
+ * 파일은 동기화 대상이 아니다 — OS가 같이 올리는 파일명 텍스트/아이콘 이미지가
+ * 일반 복사로 나가지 않게 모니터가 이걸로 건너뛴다. 실패/미지원 시 false. (데스크탑 전용)
+ */
+export async function clipboardHasFiles(): Promise<boolean> {
+  if (!isDesktop()) return false
+  try {
+    return await invoke<boolean>('clipboard_has_files')
+  } catch {
+    return false
+  }
+}
+
+/**
  * 텍스트를 concealed 마커와 함께 클립보드에 쓴다.
  * 마커 쓰기가 미지원/실패면 일반 쓰기로 폴백 — 전달이 마커보다 우선이다.
  */

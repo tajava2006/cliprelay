@@ -34,11 +34,12 @@ export const BLOSSOM_AUTH_KIND = 24242
  * 고르는 기준: kind 24133(ephemeral)을 인증·결제 없이 받고 전달할 것, 그리고
  * 상시 접속하는 클라이언트에 관대할 것. 2026-10까지 쓰던 nsec.app(상시 불안정) /
  * damus / nos.lol(재접속이 잦은 IP를 차단)은 그래서 뺐다.
+ * nostr.bitcoiner.social도 뺐다(2026-10-11): REQ에 EOSE를 돌려주지 않게 됐다.
  */
 export const NIP46_BOOTSTRAP_RELAYS = [
   'wss://relay.primal.net',
   'wss://relay.wisp.talk',
-  'wss://nostr.bitcoiner.social',
+  'wss://offchain.pub',
 ]
 
 /** RELAY_LIST_KIND 이벤트를 보유한 well-known 디스커버리 릴레이 (purplepag.es) */

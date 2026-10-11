@@ -12,7 +12,7 @@
  */
 import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { bytesToHex, hexToBytes } from 'nostr-tools/utils'
+import { bytesToHex, hexToBytes, normalizeURL } from 'nostr-tools/utils'
 import type { AbstractSimplePool } from 'nostr-tools/abstract-pool'
 import { NIP46_BOOTSTRAP_RELAYS } from './constants.ts'
 
@@ -42,12 +42,10 @@ export function createConnectURI(clientSecretKey: Uint8Array): string {
 /**
  * 벙커가 QR을 스캔할 때까지 대기.
  *
- * skipSwitchRelays: 연결 직후 nostr-tools가 자동으로 switch_relays를 호출해
- * 세션 릴레이를 벙커의 선호 목록으로 갈아치우는 걸 막는다. 실사고(2026-08-12):
- * Amber가 넘겨준 선호 릴레이 중 실제 듣는 것들이 죽자(nsec.app 502, oxtr 다운)
- * 세션 랑데부가 공집합이 돼 영구 불통 — 폰이 깨어있어도 요청 도달 불가.
- * 우리가 검증한 부트스트랩 릴레이를 세션 릴레이로 유지하는 쪽이 안전하다
- * (벙커는 어차피 URI에 실린 릴레이를 이 세션용으로 구독한다).
+ * skipSwitchRelays: nostr-tools가 연결 직후 자동으로 보내는 switch_relays를 끈다.
+ * 기능을 안 쓰겠다는 게 아니라 우리가 직접 한다는 뜻이다(settleSessionRelays).
+ * 자동 호출은 응답을 1초만 기다리고 넘어가는데, 그 뒤에 응답이 오면 signer는
+ * 조용히 새 릴레이로 옮겨가고 호출자는 옛 목록을 저장한 채로 남는다.
  */
 export async function connectFromURI(
   clientSecretKey: Uint8Array,
@@ -92,6 +90,106 @@ export async function connectFromBunkerURL(
   } finally {
     clearTimeout(timer)
   }
+}
+
+// ─── 세션 릴레이 협상 (switch_relays) ────────────────────────
+
+/** 벙커의 switch_relays 응답을 기다리는 시간 */
+const SWITCH_WAIT_MS = 8_000
+/** 옮긴 릴레이에서 벙커가 실제로 응답하는지 확인하는 시간 */
+const VERIFY_WAIT_MS = 10_000
+
+export type RelaySettlement =
+  /** 벙커가 바꿀 게 없다고 했거나(null·같은 목록) 제때 답하지 않았다 */
+  | 'kept'
+  /** 벙커 선호 릴레이로 옮겼고, 그 릴레이로 응답이 돌아오는 것까지 확인했다 */
+  | 'switched'
+  /** 벙커가 새 목록을 줬지만 거기서 응답이 없다 — 옛 목록과 합쳐서 쓴다 */
+  | 'unverified'
+
+export interface SettledSession {
+  /** 이후에 쓸 signer. 'unverified'면 넘겨받은 것과 다른 새 객체다. */
+  signer: BunkerSigner
+  /** 저장할 세션 릴레이 */
+  relays: string[]
+  outcome: RelaySettlement
+  userPubkey: string
+}
+
+/**
+ * 로그인 직후 세션 릴레이를 벙커가 선호하는 목록으로 옮긴다 (NIP-46 switch_relays).
+ *
+ * 왜 하나: nostrconnect:// URI엔 우리가 하드코딩한 릴레이가 실린다. 그 릴레이가
+ * 시원찮아지면 앱을 다시 배포해야 했다. 벙커에게 물어서 옮기면 유저가 벙커 쪽
+ * 기본 릴레이만 바꾸고 다시 로그인하면 된다.
+ *
+ * 왜 검증하나: 이 전환은 양쪽이 따로 반영한다. 벙커는 응답을 내보낸 뒤 자기
+ * 목록을 고치고 클라는 응답을 받은 뒤 고치는데, 한쪽만 반영되면 서로 다른
+ * 릴레이를 보게 된다(실사고 2026-08-12: 클라만 옮겨가서 영구 불통). 그래서 옮긴
+ * 직후 새 릴레이로만 get_public_key를 보내 답이 오는지 본다. 답이 오면 벙커가
+ * 거기서 듣고 있다는 뜻이니 새 목록만 채택하고, 안 오면 옛 목록과 합친다 —
+ * 벙커가 어느 쪽에 있든 닿는다.
+ *
+ * 응답이 SWITCH_WAIT_MS를 넘겨 늦게 오면 signer는 그때 옮겨간다. 그 경우엔
+ * onLateSwitch로 합집합을 넘기니 호출자가 저장을 갱신해야 한다.
+ */
+export async function settleSessionRelays(
+  signer: BunkerSigner,
+  clientSecretKey: Uint8Array,
+  onLateSwitch?: (relays: string[]) => void,
+): Promise<SettledSession> {
+  const before = [...signer.bp.relays]
+  const switching = signer.switchRelays()
+  const changed = await Promise.race([
+    switching,
+    new Promise<'late'>(resolve => setTimeout(() => resolve('late'), SWITCH_WAIT_MS)),
+  ])
+
+  if (changed === 'late') {
+    void switching.then(lateChanged => {
+      if (lateChanged) onLateSwitch?.(unionRelays(before, signer.bp.relays))
+    })
+  }
+  if (changed !== true) {
+    return { signer, relays: [...signer.bp.relays], outcome: 'kept', userPubkey: await signer.getPublicKey() }
+  }
+
+  const after = [...signer.bp.relays]
+  try {
+    const userPubkey = await withDeadline(signer.getPublicKey(), VERIFY_WAIT_MS)
+    return { signer, relays: after, outcome: 'switched', userPubkey }
+  } catch {
+    // 새 릴레이에서 답이 없다. 옛 목록까지 구독하는 signer로 갈아탄다.
+    const relays = unionRelays(before, after)
+    void signer.close().catch(() => {})
+    const wide = BunkerSigner.fromBunker(clientSecretKey, {
+      pubkey: signer.bp.pubkey,
+      relays,
+      secret: null,
+    })
+    return { signer: wide, relays, outcome: 'unverified', userPubkey: await wide.getPublicKey() }
+  }
+}
+
+function unionRelays(a: string[], b: string[]): string[] {
+  const seen = new Set<string>()
+  return [...a, ...b].filter(url => {
+    let key = url
+    try { key = normalizeURL(url) } catch { /* 그대로 */ }
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function withDeadline<T>(run: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms)
+    run.then(
+      v => { clearTimeout(timer); resolve(v) },
+      e => { clearTimeout(timer); reject(e) },
+    )
+  })
 }
 
 // ─── 세션 복원 ───────────────────────────────────────────────

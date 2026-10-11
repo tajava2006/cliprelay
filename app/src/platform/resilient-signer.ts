@@ -20,26 +20,22 @@ import type { BunkerSigner } from 'nostr-tools/nip46'
 import type { SimplePool } from 'nostr-tools/pool'
 import type { EventTemplate, VerifiedEvent } from 'nostr-tools/pure'
 import { normalizeURL } from 'nostr-tools/utils'
-import { createPool, restoreSigner, NIP46_BOOTSTRAP_RELAYS } from '@cliprelay/shared'
+import { createPool, restoreSigner } from '@cliprelay/shared'
 import { loadAuth } from '../store/auth-store'
 import { logConn } from '../nostr/connlog'
 import type { UniversalSigner } from './signer'
 
 /**
- * 세션 릴레이와 부트스트랩 릴레이의 합집합 — NIP-46 랑데부 그물을 넓게 친다.
+ * 저장된 세션 릴레이를 정규형으로 맞추고 중복을 걷는다.
  *
- * 실사고(2026-08-12): 저장된 signerRelays(로그인 때 switch_relays로 받은 Amber
- * 선호 목록)의 유효 릴레이가 전부 죽자 요청이 Amber에 도달할 길 자체가 사라졌다.
- * bp.relays는 발행과 응답 구독 양쪽에 쓰이므로, 여기에 부트스트랩(로그인 URI에
- * 실려서 벙커도 이 세션용으로 알고 있는 릴레이들)을 합치면 죽은 릴레이가 있어도
- * 남은 경로로 랑데부가 성립한다. 죽은 릴레이로의 발행 실패는 Promise.any가 무시.
+ * 예전엔 여기서 부트스트랩 릴레이를 합쳤다(2026-08-12: switch_relays로 받은
+ * 목록을 검증 없이 믿었다가 벙커와 어긋나 영구 불통 → 그물을 넓혀 막음).
+ * 지금은 로그인 때 settleSessionRelays가 전환을 검증하고, 검증이 안 되면 옛
+ * 목록과의 합집합을 저장한다. 즉 저장분이 곧 "벙커가 이 세션용으로 듣는 릴레이"라
+ * 더 보탤 게 없다 — 벙커가 모르는 릴레이를 보태 봐야 듣는 쪽이 없다.
  */
-function widenRelays(sessionRelays: string[]): string[] {
-  // 양쪽을 같은 정규형으로 맞춘 뒤 합친다. 저장된 세션 릴레이는 슬래시 없이
-  // (`wss://relay.example`), 부트스트랩은 슬래시를 붙여 넣던 탓에 같은 릴레이가
-  // 두 번 들어가 3개가 6개로 보였다 — 중복분 발행은 nostr-tools가 "duplicate url"로
-  // 거절하므로 동작엔 지장이 없었지만 목록이 거짓말을 했다.
-  return [...new Set([...sessionRelays, ...NIP46_BOOTSTRAP_RELAYS].map(canonicalRelay))]
+function sessionRelays(stored: string[]): string[] {
+  return [...new Set(stored.map(canonicalRelay))]
 }
 function canonicalRelay(url: string): string {
   try { return normalizeURL(url) } catch { return url }
@@ -170,7 +166,7 @@ class ResilientBunkerSigner implements UniversalSigner {
     try { this.innerPool?.destroy() } catch { /* ignore */ }
 
     const pool = createPool()
-    const relays = widenRelays(auth.signerRelays)
+    const relays = sessionRelays(auth.signerRelays)
     this.inner = restoreSigner(auth.clientPrivkey, auth.signerPubkey, relays, pool)
     this.innerPool = pool
     this.lastRebuildAt = Date.now()
@@ -190,7 +186,7 @@ export function restoreResilientSigner(
 ): UniversalSigner {
   const pool = createPool()
   return new ResilientBunkerSigner(
-    restoreSigner(clientPrivkeyHex, signerPubkey, widenRelays(signerRelays), pool),
+    restoreSigner(clientPrivkeyHex, signerPubkey, sessionRelays(signerRelays), pool),
     pool,
   )
 }

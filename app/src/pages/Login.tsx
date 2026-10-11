@@ -19,6 +19,7 @@ import {
   createConnectURI,
   connectFromURI,
   connectFromBunkerURL,
+  settleSessionRelays,
   bytesToHex,
 } from '@cliprelay/shared'
 import { getPublicKey } from 'nostr-tools/pure'
@@ -27,6 +28,7 @@ import { saveAuth } from '../store/auth-store'
 import { setSigner } from '../platform/signer'
 import { makeResilientSigner } from '../platform/resilient-signer'
 import { isAndroid } from '../platform/detect'
+import { logConn } from '../nostr/connlog'
 import { t } from '../i18n'
 
 type LoginMode = 'qr' | 'bunker' | 'amber'
@@ -91,18 +93,36 @@ export function Login({ onLogin }: LoginProps) {
   const finalizeLogin = useCallback(
     async (signer: BunkerSigner, clientKey: Uint8Array) => {
       setPhase({ status: 'connecting' })
-      const userPubkey = await signer.getPublicKey()
-      // 타임아웃+자가재생성 래퍼로 감싼다 — 로그인 직후의 내부 pool은 재연결이 없는
-      // 기본값이지만, 첫 타임아웃 때 rebuild가 튼튼한 pool로 갈아끼운다
-      setSigner(makeResilientSigner(signer))
-      await saveAuth({
-        signerType: 'bunker',
-        clientPrivkey: bytesToHex(clientKey),
+      // 세션 릴레이를 벙커 선호 목록으로 옮긴다(검증 포함). 그래서 저장하는
+      // signerRelays는 URI에 실어 보낸 하드코딩 목록이 아니라 협상 결과다.
+      const clientPrivkey = bytesToHex(clientKey)
+      const base = {
+        signerType: 'bunker' as const,
+        clientPrivkey,
         clientPubkey: getPublicKey(clientKey),
         signerPubkey: signer.bp.pubkey,
-        userPubkey,
-        signerRelays: signer.bp.relays,
+      }
+      // 벙커 응답이 늦게 와서 signer가 뒤늦게 옮겨가는 경우. 저장분도 따라가야
+      // 다음 부팅이 옛 목록으로 복원하지 않는다. 아래 첫 저장보다 먼저 올 수도
+      // 있어서 값만 받아 두고, 저장은 userPubkey를 안 뒤에 한다.
+      let userPubkey: string | null = null
+      let lateRelays: string[] | null = null
+      const saveLate = () => {
+        if (!userPubkey || !lateRelays) return
+        logConn(`signer relays switched late: ${lateRelays.join(', ')}`)
+        void saveAuth({ ...base, userPubkey, signerRelays: lateRelays })
+      }
+      const settled = await settleSessionRelays(signer, clientKey, relays => {
+        lateRelays = relays
+        saveLate()
       })
+      logConn(`signer relays ${settled.outcome}: ${settled.relays.join(', ')}`)
+      // 타임아웃+자가재생성 래퍼로 감싼다 — 로그인 직후의 내부 pool은 재연결이 없는
+      // 기본값이지만, 첫 타임아웃 때 rebuild가 튼튼한 pool로 갈아끼운다
+      setSigner(makeResilientSigner(settled.signer))
+      await saveAuth({ ...base, userPubkey: settled.userPubkey, signerRelays: settled.relays })
+      userPubkey = settled.userPubkey
+      saveLate()
       onLogin()
     },
     [onLogin],

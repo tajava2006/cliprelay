@@ -17,7 +17,7 @@ import { saveBlossomServers } from '../store/blossom-store'
 import { saveProfile } from '../store/profile-store'
 import { getSharedPool, destroySharedPool, dropRelayConnections } from '../nostr/pool'
 import { startWatchdog } from '../nostr/watchdog'
-import { startClipboardSubscription, type ClipboardSubscription } from '../nostr/subscribe'
+import { startClipboardSubscription, type ClipboardSubscription, type ProbeResult } from '../nostr/subscribe'
 import { tryLastResort, noteRecovered } from '../platform/last-resort'
 import { kickSigner } from '../platform/signer'
 import { logConn } from '../nostr/connlog'
@@ -74,6 +74,13 @@ const LAST_RESORT_AFTER_TICKS = 8
  */
 const PROBE_TIMEOUT_MS = 8_000
 
+/** hardReset을 시도할 tick인가 — 간격을 두 배씩 벌리다가 5분(20 tick) 주기로 고정. */
+export function shouldHardResetAt(deadTicks: number): boolean {
+  if (deadTicks < HARD_RESET_AFTER_TICKS) return false
+  if (deadTicks <= 32) return (deadTicks & (deadTicks - 1)) === 0
+  return deadTicks % 20 === 0
+}
+
 export interface SyncEngineOpts {
   userPubkey: string
   writeRelays: string[]
@@ -109,6 +116,8 @@ export class SyncEngine {
   private deadTicks: number = 0
   /** 생사 프로브 중복 실행 방지 */
   private probeInFlight: boolean = false
+  /** 직전 프로브에서 침묵한 릴레이 목록 (로그 중복 방지용) */
+  private lastSilentKey: string = ''
   /** 최후수단(오라클 체크 포함) 중복 실행 방지 */
   private lastResortInFlight: boolean = false
   /** 이번 죽음 구간에서 최후수단 직전의 백오프 해제를 이미 썼는가 */
@@ -227,7 +236,7 @@ export class SyncEngine {
     // 실제 REQ→EOSE 왕복으로 검증한다. 실패하면 같은 사다리로 올라간다.
     if (this.probeInFlight) return
     this.probeInFlight = true
-    let probing: Promise<boolean>
+    let probing: Promise<ProbeResult>
     try {
       probing = this.clipboardSub.probe(PROBE_TIMEOUT_MS)
     } catch (err) {
@@ -237,12 +246,26 @@ export class SyncEngine {
       this.escalate()
       return
     }
-    void probing.then(ok => {
+    void probing.then(({ alive, silent }) => {
       this.probeInFlight = false
-      if (!ok) {
-        console.warn('[sync] liveness probe failed — connection is undead, escalating')
+      if (!alive) {
+        console.warn('[sync] liveness probe failed on every relay — connection is undead, escalating')
         this.escalate()
         return
+      }
+      // 일부만 침묵: 수신 경로는 살아 있으니 아무것도 버리지 않는다. 좀비 소켓일
+      // 수도, EOSE를 안 주는 릴레이일 수도 있는데 REQ로는 둘을 구분할 수 없고,
+      // 후자를 재접속으로 "고치려" 들면 영원히 두드리게 된다. 좀비는 슬립 복귀
+      // 워치독이 소켓을 통째로 갈아서 잡는다. 여기선 바뀔 때만 기록한다.
+      const silentKey = [...silent].sort().join(',')
+      if (silentKey !== this.lastSilentKey) {
+        this.lastSilentKey = silentKey
+        if (silent.length > 0) {
+          console.warn('[sync] relays not answering REQ (others alive, ignoring):', silent)
+          logConn(`no EOSE from ${silent.map(u => u.replace(/^wss?:\/\//, '').replace(/\/$/, '')).join(', ')} — others alive`)
+        } else {
+          logConn('all relays answering again')
+        }
       }
       if (this.deadTicks > 0) {
         logConn(`recovered after ${this.deadTicks} dead check(s)`)
@@ -293,6 +316,11 @@ export class SyncEngine {
         .finally(() => { this.lastResortInFlight = false })
     }
     if (this.deadTicks >= HARD_RESET_AFTER_TICKS) {
+      // 매 tick 리셋하지 않는다. 리셋은 pool을 부수고 모든 릴레이에 새로 붙는 일이라,
+      // 리셋으로 안 고쳐지는 죽음(WebKit 고장, 혹은 우리 판정의 오류)에서는 15초마다
+      // 전 릴레이를 두드리는 폭풍이 된다 — 접속 자체는 성공하므로 접속 백오프도
+      // 못 막는다. 4·8·16·32 tick, 그 뒤로는 5분마다.
+      if (!shouldHardResetAt(this.deadTicks)) return
       this.hardReset(`dead for ${this.deadTicks} checks`)
     } else if (this.deadTicks >= FORCE_RECONNECT_AFTER_TICKS) {
       this.forceReconnect(`dead for ${this.deadTicks} checks`)

@@ -50,16 +50,54 @@ export class GuardedPool extends SimplePool {
       return relayAttemptAllowed(url)
     }
     this.onRelayConnectionFailure = url => noteRelayFailure(url)
-    this.onRelayConnectionSuccess = url => {
-      noteRelaySuccess(url)
-      const relay = this.peekRelay(url)
-      if (relay) relay.resubscribeBackoff = RECONNECT_BACKOFF_MS
-    }
+    this.onRelayConnectionSuccess = url => noteRelaySuccess(url)
+  }
+
+  /** 모든 접속 경로(구독·발행·직접 호출)가 여기를 지나므로 relay 길들이기를 여기서 한다. */
+  override async ensureRelay(
+    url: string,
+    params?: Parameters<SimplePool['ensureRelay']>[1],
+  ): Promise<AbstractRelay> {
+    const relay = await super.ensureRelay(url, params)
+    relay.resubscribeBackoff = RECONNECT_BACKOFF_MS
+    tameKeepalive(relay)
+    return relay
   }
 
   /** 부작용 없이 pool 내부 relay 조회. 연결을 새로 만들지 않는다. */
   peekRelay(url: string): AbstractRelay | undefined {
     return this.relays.get(normalizeURL(url))
+  }
+}
+
+const KEEPALIVE_DUMMY_ID = 'a'.repeat(64)
+const KEEPALIVE_WAIT_MS = 20_000
+const tamed = new WeakSet<AbstractRelay>()
+
+/**
+ * nostr-tools의 ping을 "끊지 않는 keepalive"로 바꾼다.
+ *
+ * 브라우저 WebSocket엔 ping()이 없어서 nostr-tools는 더미 REQ를 보내고 EOSE를
+ * 기다리는데, 20초 안에 안 오면 **소켓을 닫는다.** 이건 소켓이 아니라 릴레이의
+ * 조회 경로에 대한 판정이다 — REQ에 EOSE를 안 주지만 실시간 전달·발행은 멀쩡한
+ * 릴레이(nostr.bitcoiner.social, 2026-10)를 49초마다 끊고 다시 붙기를 영원히
+ * 반복했다. 좀비 소켓 판정은 앱의 프로브·워치독이 하고(라이브러리 ping은 어차피
+ * 좀비를 못 잡았다), 여기서는 유휴 타임아웃을 막는 트래픽만 흘린다.
+ */
+function tameKeepalive(relay: AbstractRelay): void {
+  if (tamed.has(relay)) return
+  tamed.add(relay)
+  // pingpong은 타입상 private — setInterval이 호출 시점에 프로퍼티를 찾으므로 인스턴스에서 덮으면 된다
+  ;(relay as unknown as { pingpong: () => Promise<void> }).pingpong = async () => {
+    if (!relay.connected) return
+    try {
+      const sub = relay.subscribe([{ ids: [KEEPALIVE_DUMMY_ID], limit: 1 }], {
+        label: '<keepalive>',
+        // 진짜 EOSE든 타임아웃 뒤의 합성 EOSE든 구독만 정리하고 끝낸다
+        oneose: () => sub.close(),
+        eoseTimeout: KEEPALIVE_WAIT_MS,
+      })
+    } catch { /* 닫히는 중이면 다음 주기에 */ }
   }
 }
 

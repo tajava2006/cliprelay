@@ -12,6 +12,8 @@
  */
 import { CLIPBOARD_KIND, CLIENT_TAG } from '@cliprelay/shared'
 import { getSharedPool, relayHasLiveSubscription, CLIPBOARD_SUB_LABEL } from './pool'
+import { probeRelays, type ProbeResult } from './probe'
+export type { ProbeResult }
 import type { ClipboardPayload } from '@cliprelay/shared'
 import { Image } from '@tauri-apps/api/image'
 import { getSigner } from '../platform/signer'
@@ -53,16 +55,13 @@ export interface ClipboardSubscription {
    * 얼어붙는다 (실사고: 표시등 ●인데 네트워킹 프로세스에 소켓 0개, 2026-08-05).
    * 왕복만이 진실이다.
    *
-   * nostr-tools의 EOSE 배칭은 "연결 실패한 릴레이"도 카운트에 포함하므로
-   * (abstract-pool handleClose→handleEose), 죽어서 접속이 안 되는 릴레이가
-   * 목록에 섞여 있어도 프로브는 통과한다. false가 나오는 경우는 정확히
-   * "응답도 실패도 안 하는 언데드 릴레이가 존재"할 때뿐이다.
+   * 릴레이별로 따로 묻고, **하나라도 답하면 alive**다. 전부 침묵할 때만 죽은
+   * 것으로 본다 — WebKit 소켓 채널이 통째로 고장난 경우가 정확히 그 모양이다.
    */
-  probe: (timeoutMs: number) => Promise<boolean>
+  probe: (timeoutMs: number) => Promise<ProbeResult>
 }
 
-/** 프로브 REQ용 더미 이벤트 id — 존재할 수 없는 id라 limit:0과 함께 즉시 EOSE만 받는다 */
-const PROBE_DUMMY_ID = 'a'.repeat(64)
+
 
 /**
  * 데스크탑 수신: 복호화 → 클립보드 자동 쓰기 + 히스토리 저장
@@ -159,7 +158,7 @@ export function startClipboardSubscription(
       isAlive: () => false,
       getRelayStatus: () => ({}),
       getLastEventCreatedAt: () => 0,
-      probe: () => Promise.resolve(false),
+      probe: () => Promise.resolve({ alive: false, silent: [] }),
     }
   }
 
@@ -301,37 +300,14 @@ export function startClipboardSubscription(
     },
     getLastEventCreatedAt: () => lastEventCreatedAt,
     probe: (timeoutMs: number) =>
-      new Promise<boolean>(resolve => {
-        let settled = false
-        const done = (ok: boolean) => {
-          if (settled) return
-          settled = true
-          clearTimeout(timer)
-          try { probeSub.close() } catch { /* ignore */ }
-          resolve(ok)
-        }
+      new Promise<ProbeResult>(resolve => {
         // 살아있다고 믿는 릴레이만 찌른다. 프로브의 목적은 "connected라는데 진짜냐"의
         // 검증이지 죽은 릴레이 재접속이 아니다 — 전체 목록을 찌르면 죽은(혹은 우리를
         // 차단한) 릴레이에 15초마다 새 접속을 시도하게 된다. 복구는 repair/사다리 몫.
         const live = writeRelays.filter(url => relayHasLiveSubscription(url, CLIPBOARD_SUB_LABEL))
-        if (live.length === 0) { resolve(false); return }
-        const timer = setTimeout(() => done(false), timeoutMs)
-        const probeSub = pool.subscribeMany(
-          live,
-          { ids: [PROBE_DUMMY_ID], limit: 0 },
-          {
-            label: '<liveness>',
-            // 모든 릴레이가 EOSE 또는 실패로 응답을 마쳐야 발화 — 언데드가 있으면 안 옴
-            oneose: () => done(true),
-            onevent: () => {},
-            // ⚠️ 절대 제거 금지: nostr-tools Subscription은 릴레이가 무응답이어도
-            // eoseTimeout(기본 4.4초) 뒤 EOSE를 로컬에서 합성한다. 이 값을 우리
-            // 판정 타이머보다 길게 잡지 않으면 좀비 릴레이 위에서도 가짜 EOSE가
-            // 떠서 프로브가 영원히 true를 반환한다 (2026-08-09 실사고: 소켓 0개
-            // 상태로 몇 시간을 "정상" 오판 — 사다리 완전 침묵).
-            maxWait: timeoutMs + 2_000,
-          },
-        )
+        if (live.length === 0) { resolve({ alive: false, silent: [] }); return }
+
+        void probeRelays(pool, live, timeoutMs).then(resolve)
       }),
   }
 }

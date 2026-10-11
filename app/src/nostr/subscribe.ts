@@ -72,14 +72,11 @@ async function processDesktopEvent(
   onTextWritten: (text: string) => void,
   onImageWritten: (fingerprint: string, pngBytes: Uint8Array) => void,
 ): Promise<void> {
-  toast(t('toast.received'))
   let payload: ClipboardPayload
   try {
     console.log('[subscribe] decrypting, userPubkey:', userPubkey.slice(0, 8))
-    toast(t('toast.decrypt.start'))
     const plaintext = await getSigner().nip44Decrypt(userPubkey, event.content)
     payload = JSON.parse(plaintext) as ClipboardPayload
-    toast(t('toast.decrypt.ok'), 'ok')
     console.log('[subscribe] decrypted, type:', payload.type)
   } catch (err) {
     console.error('[subscribe] decrypt failed:', err)

@@ -46,18 +46,27 @@ export const NIP46_BOOTSTRAP_RELAYS = [
   'wss://relay.coinos.io',
 ]
 
-/** RELAY_LIST_KIND 이벤트를 보유한 well-known 디스커버리 릴레이 (purplepag.es) */
+/**
+ * RELAY_LIST_KIND(kind:10002)를 모아 두는 인덱서 릴레이. 조회와, 초보자용 디폴트
+ * 목록 발행 양쪽에 쓴다. 셋 다 kind:10002 저장을 실측으로 확인했다(2026-10-11).
+ * damus / nos.lol은 뺐다 — 상시 구독을 걸어 두는 자리인데 재접속이 잦은 IP를 차단한다.
+ */
 export const NIP65_DISCOVERY_RELAYS = [
   'wss://purplepag.es',
-  'wss://relay.damus.io',
-  'wss://nos.lol',
+  'wss://indexer.coracle.social',
+  'wss://user.kindpag.es',
 ]
 
-/** kind:10002 미발행 초보자에게 자동으로 설정해줄 디폴트 쓰기 릴레이 */
+/**
+ * kind:10002 미발행 초보자에게 자동으로 설정해줄 디폴트 쓰기 릴레이.
+ * 고르는 기준: 우리 커스텀 kind(9372)와 kind:10063을 인증 없이 저장할 것
+ * (coinos·purplepag류는 kind 화이트리스트로 거절한다), 한 IP의 상시 연결 여러 개를
+ * 받아줄 것. 셋 다 실측으로 확인했다(2026-10-11).
+ */
 export const DEFAULT_WRITE_RELAYS = [
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-  'wss://relay.primal.net',
+  'wss://relay.wisp.talk',
+  'wss://relay.ditto.pub',
+  'wss://nostr.data.haus',
 ]
 
 /** kind:10063 미발행 초보자에게 자동으로 설정해줄 디폴트 Blossom 서버 */

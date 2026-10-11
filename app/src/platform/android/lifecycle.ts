@@ -76,12 +76,16 @@ export async function androidOnForeground(userPubkey: string, sync: SyncEngine):
     if (!published) {
       try {
         const { text, sensitive } = await invoke<{ text: string; sensitive?: boolean }>('plugin:clipboard-action|read_clipboard_text')
-        if (text && text !== sync.getLastSyncedText()) {
+        const lastSynced = sync.getLastSyncedText()
+        if (text && text !== lastSynced) {
           sync.setLastSyncedText(text)
           console.log('[sync] clipboard changed, publishing…')
           await publishClipboard(
             { type: 'text', content: text, ...(sensitive ? { concealed: true } : {}) },
             writeRelays,
+            // 기준값이 비어 있으면 프로세스가 막 뜬 것 — 지금 클립보드가 새 복사인지
+            // 예전부터 있던 건지 알 수 없으므로 히스토리 전체와 대조한다.
+            { dedupeWholeHistory: lastSynced === '' },
           ).catch(err => console.error('[sync] publish failed:', err))
         }
       } catch { /* ignore */ }

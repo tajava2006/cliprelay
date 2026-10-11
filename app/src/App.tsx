@@ -12,7 +12,7 @@ import { loadAuth, clearAuth } from './store/auth-store'
 import { loadWriteRelays, saveWriteRelays, clearWriteRelays } from './store/relay-store'
 import { loadBlossomServers, saveBlossomServers, clearBlossomServers } from './store/blossom-store'
 import { loadProfile, saveProfile, clearProfile } from './store/profile-store'
-import { setSigner, clearSigner } from './platform/signer'
+import { setSigner, logoutSigner } from './platform/signer'
 import { restoreResilientSigner } from './platform/resilient-signer'
 import { destroySharedPool, getSharedPool } from './nostr/pool'
 import { startForegroundService, stopForegroundService, onNetworkChanged, startNativeSubscription, stopNativeSubscription, setAppForeground } from './platform/android/foreground-service'
@@ -64,26 +64,30 @@ function App() {
     const pool = getSharedPool()
     if (writeRelays.length === 0) {
       const fetched = await fetchWriteRelays(userPubkey, pool)
-      if (fetched) {
+      if (Array.isArray(fetched)) {
         await saveWriteRelays(fetched)
         writeRelays = fetched
-      } else {
-        // kind:10002 없는 완전 초보자 — 디폴트 릴레이 자동 발행
+      } else if (fetched === 'none') {
+        // 디스커버리 릴레이가 답했는데 kind:10002가 없다 — 완전 초보자.
+        // 'unreachable'(아무도 답하지 않음)일 땐 발행하지 않는다: 못 찾은 것일 뿐인데
+        // 디폴트를 발행하면 사용자의 진짜 목록을 덮어쓴다.
         const ok = await publishDefaultRelayList(DEFAULT_WRITE_RELAYS)
         if (ok) {
           await saveWriteRelays(DEFAULT_WRITE_RELAYS)
           writeRelays = DEFAULT_WRITE_RELAYS
         }
+      } else {
+        console.warn('[app] relay discovery unreachable — not publishing defaults')
       }
       if (writeRelays.length > 0) setState(prev => prev.status === 'main' ? { ...prev, writeRelays } : prev)
     }
     if (blossomServers.length === 0) {
       const fetched = await fetchBlossomServers(userPubkey, writeRelays, pool)
-      if (fetched) {
+      if (Array.isArray(fetched)) {
         await saveBlossomServers(fetched)
         blossomServers = fetched
-      } else if (writeRelays.length > 0) {
-        // kind:10063 없는 완전 초보자 — 디폴트 Blossom 서버 자동 발행
+      } else if (fetched === 'none') {
+        // write 릴레이가 답했는데 kind:10063이 없다 — 디폴트 Blossom 서버 자동 발행
         const ok = await publishDefaultBlossomList(DEFAULT_BLOSSOM_SERVERS, writeRelays)
         if (ok) {
           await saveBlossomServers(DEFAULT_BLOSSOM_SERVERS)
@@ -154,7 +158,7 @@ function App() {
   const logout = async () => {
     syncRef.current?.stop(); syncRef.current = null
     visibilityCleanupRef.current?.(); visibilityCleanupRef.current = null
-    clearSigner()
+    await logoutSigner()
     destroySharedPool()
     void stopNativeSubscription().catch(() => {})
     await stopForegroundService().catch(() => {})
@@ -185,6 +189,8 @@ function App() {
         } else {
           const signer = restoreResilientSigner(auth.clientPrivkey!, auth.signerPubkey!, auth.signerRelays!)
           setSigner(signer)
+          // 벙커가 선호 릴레이를 바꿨으면 따라간다. 부팅을 붙잡지 않도록 뒤에서.
+          void signer.renegotiateRelays?.().catch(err => console.warn('[signer] renegotiate failed:', err))
         }
         if (cancelled) return
         void enterMain(auth.userPubkey)

@@ -20,8 +20,8 @@ import type { BunkerSigner } from 'nostr-tools/nip46'
 import type { SimplePool } from 'nostr-tools/pool'
 import type { EventTemplate, VerifiedEvent } from 'nostr-tools/pure'
 import { normalizeURL } from 'nostr-tools/utils'
-import { createPool, restoreSigner } from '@cliprelay/shared'
-import { loadAuth } from '../store/auth-store'
+import { createPool, restoreSigner, negotiateSessionRelays } from '@cliprelay/shared'
+import { loadAuth, saveAuth } from '../store/auth-store'
 import { logConn } from '../nostr/connlog'
 import type { UniversalSigner } from './signer'
 
@@ -42,6 +42,8 @@ function canonicalRelay(url: string): string {
 }
 
 const OP_TIMEOUT_MS = 20_000
+/** 로그아웃 때 벙커의 ack를 기다리는 시간 — 안 와도 로그아웃은 진행한다 */
+const LOGOUT_WAIT_MS = 4_000
 /** kick(선제 재생성) 최소 간격 — 사다리 churn 중 15초마다 재생성하는 낭비 방지 */
 const KICK_MIN_INTERVAL_MS = 60_000
 
@@ -90,6 +92,47 @@ class ResilientBunkerSigner implements UniversalSigner {
     void this.inner.close().catch(() => {})
     try { this.innerPool?.destroy() } catch { /* ignore */ }
     this.innerPool = null
+  }
+
+  /**
+   * 벙커에 세션 종료를 알린다 (NIP-46 logout). 벙커 쪽 연결 목록에 죽은 항목이
+   * 쌓이지 않게 하려는 예의일 뿐이라, 답이 없어도 그냥 넘어간다.
+   */
+  async logout(): Promise<void> {
+    try {
+      await Promise.race([
+        this.inner.logout(),
+        new Promise(resolve => setTimeout(resolve, LOGOUT_WAIT_MS)),
+      ])
+    } catch { /* 벙커가 logout을 모르거나 닿지 않음 — 무시 */ }
+  }
+
+  /**
+   * 벙커에게 선호 릴레이를 다시 묻고 바뀌었으면 따라간다 (앱을 켤 때마다).
+   *
+   * 유저가 벙커의 기본 릴레이를 바꿔도 로그아웃·재로그인 없이 다음 실행에서
+   * 따라가게 하려는 것. 질문은 지금 세션 릴레이로 나가므로 그 릴레이들이 이미
+   * 전부 죽었다면 닿지 않는다 — 그때는 재로그인이 필요하다.
+   */
+  async renegotiateRelays(): Promise<void> {
+    const signer = this.inner
+    const persist = async (relays: string[]) => {
+      const auth = await loadAuth()
+      // 그 사이 로그아웃했거나 다른 세션으로 바뀌었으면 건드리지 않는다
+      if (!auth || auth.signerPubkey !== signer.bp.pubkey) return false
+      await saveAuth({ ...auth, signerRelays: relays })
+      return true
+    }
+    const result = await negotiateSessionRelays(signer, relays => {
+      logConn(`signer relays switched late: ${relays.join(', ')}`)
+      void persist(relays)
+    })
+    if (result.outcome === 'kept') return
+    logConn(`signer relays ${result.outcome}: ${result.relays.join(', ')}`)
+    if (!(await persist(result.relays))) return
+    // 검증이 안 됐으면 지금 signer는 새 목록만 듣고 있다. 방금 저장한 합집합으로
+    // 다시 만들어 옛 릴레이도 듣게 한다.
+    if (result.outcome === 'unverified') await this.rebuild()
   }
 
   /**

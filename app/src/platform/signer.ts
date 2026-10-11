@@ -25,6 +25,10 @@ export interface UniversalSigner {
   kick?(reason: string): void
   /** NIP-46 세션 릴레이별 소켓 연결 여부 (ResilientBunkerSigner만 구현) */
   getRelayStatus?(): Record<string, boolean>
+  /** 원격 서명기에 세션 종료를 알린다. 실패해도 던지지 않는다 (ResilientBunkerSigner만 구현) */
+  logout?(): Promise<void>
+  /** 원격 서명기의 선호 릴레이를 다시 물어 따라간다 (ResilientBunkerSigner만 구현) */
+  renegotiateRelays?(): Promise<void>
 }
 
 let _signer: UniversalSigner | null = null
@@ -36,6 +40,15 @@ export function setSigner(signer: UniversalSigner): void {
 export function getSigner(): UniversalSigner {
   if (!_signer) throw new Error('Signer not initialized — login required')
   return _signer
+}
+
+/**
+ * 로그아웃용: 원격 서명기에 세션 종료를 알린 뒤 signer를 정리한다.
+ * 알림은 최선 노력 — 서명기가 응답하지 않아도 로컬 정리는 진행된다.
+ */
+export async function logoutSigner(): Promise<void> {
+  try { await _signer?.logout?.() } catch { /* ignore */ }
+  clearSigner()
 }
 
 export function clearSigner(): void {

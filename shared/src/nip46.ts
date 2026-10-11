@@ -107,21 +107,21 @@ export type RelaySettlement =
   /** 벙커가 새 목록을 줬지만 거기서 응답이 없다 — 옛 목록과 합쳐서 쓴다 */
   | 'unverified'
 
-export interface SettledSession {
-  /** 이후에 쓸 signer. 'unverified'면 넘겨받은 것과 다른 새 객체다. */
-  signer: BunkerSigner
-  /** 저장할 세션 릴레이 */
-  relays: string[]
+export interface RelayNegotiation {
   outcome: RelaySettlement
-  userPubkey: string
+  /**
+   * 저장할 세션 릴레이. 'unverified'면 옛∪새 합집합인데, 넘겨준 signer는 새
+   * 목록만 구독하고 있으므로 호출자가 이 목록으로 signer를 다시 만들어야 한다.
+   */
+  relays: string[]
 }
 
 /**
- * 로그인 직후 세션 릴레이를 벙커가 선호하는 목록으로 옮긴다 (NIP-46 switch_relays).
+ * 세션 릴레이를 벙커가 선호하는 목록으로 옮긴다 (NIP-46 switch_relays).
  *
  * 왜 하나: nostrconnect:// URI엔 우리가 하드코딩한 릴레이가 실린다. 그 릴레이가
  * 시원찮아지면 앱을 다시 배포해야 했다. 벙커에게 물어서 옮기면 유저가 벙커 쪽
- * 기본 릴레이만 바꾸고 다시 로그인하면 된다.
+ * 기본 릴레이만 바꾸면 된다. 로그인 때와 앱을 켤 때마다 묻는다.
  *
  * 왜 검증하나: 이 전환은 양쪽이 따로 반영한다. 벙커는 응답을 내보낸 뒤 자기
  * 목록을 고치고 클라는 응답을 받은 뒤 고치는데, 한쪽만 반영되면 서로 다른
@@ -133,11 +133,10 @@ export interface SettledSession {
  * 응답이 SWITCH_WAIT_MS를 넘겨 늦게 오면 signer는 그때 옮겨간다. 그 경우엔
  * onLateSwitch로 합집합을 넘기니 호출자가 저장을 갱신해야 한다.
  */
-export async function settleSessionRelays(
+export async function negotiateSessionRelays(
   signer: BunkerSigner,
-  clientSecretKey: Uint8Array,
   onLateSwitch?: (relays: string[]) => void,
-): Promise<SettledSession> {
+): Promise<RelayNegotiation> {
   const before = [...signer.bp.relays]
   const switching = signer.switchRelays()
   const changed = await Promise.race([
@@ -150,32 +149,60 @@ export async function settleSessionRelays(
       if (lateChanged) onLateSwitch?.(unionRelays(before, signer.bp.relays))
     })
   }
-  if (changed !== true) {
-    return { signer, relays: [...signer.bp.relays], outcome: 'kept', userPubkey: await signer.getPublicKey() }
-  }
+  if (changed !== true) return { outcome: 'kept', relays: before }
 
   const after = [...signer.bp.relays]
+  // 순서만 다른 같은 목록에도 nostr-tools는 "바뀌었다"고 답한다. 옮길 게 없다.
+  if (sameRelaySet(before, after)) return { outcome: 'kept', relays: before }
   try {
-    const userPubkey = await withDeadline(signer.getPublicKey(), VERIFY_WAIT_MS)
-    return { signer, relays: after, outcome: 'switched', userPubkey }
+    // get_public_key는 signer가 결과를 캐시한다. 캐시가 차 있으면 릴레이를
+    // 타지 않아 검증이 되지 않으므로 비우고 보낸다.
+    ;(signer as unknown as { cachedPubKey?: string }).cachedPubKey = undefined
+    await withDeadline(signer.getPublicKey(), VERIFY_WAIT_MS)
+    return { outcome: 'switched', relays: after }
   } catch {
-    // 새 릴레이에서 답이 없다. 옛 목록까지 구독하는 signer로 갈아탄다.
-    const relays = unionRelays(before, after)
-    void signer.close().catch(() => {})
-    const wide = BunkerSigner.fromBunker(clientSecretKey, {
-      pubkey: signer.bp.pubkey,
-      relays,
-      secret: null,
-    })
-    return { signer: wide, relays, outcome: 'unverified', userPubkey: await wide.getPublicKey() }
+    return { outcome: 'unverified', relays: unionRelays(before, after) }
   }
+}
+
+export interface SettledSession extends RelayNegotiation {
+  /** 이후에 쓸 signer. 'unverified'면 넘겨받은 것과 다른 새 객체다. */
+  signer: BunkerSigner
+  userPubkey: string
+}
+
+/** 로그인 직후용: 협상하고, 검증이 안 됐으면 합집합을 구독하는 signer로 갈아탄다. */
+export async function settleSessionRelays(
+  signer: BunkerSigner,
+  clientSecretKey: Uint8Array,
+  onLateSwitch?: (relays: string[]) => void,
+): Promise<SettledSession> {
+  const result = await negotiateSessionRelays(signer, onLateSwitch)
+  if (result.outcome !== 'unverified') {
+    return { ...result, signer, userPubkey: await signer.getPublicKey() }
+  }
+  void signer.close().catch(() => {})
+  const wide = BunkerSigner.fromBunker(clientSecretKey, {
+    pubkey: signer.bp.pubkey,
+    relays: result.relays,
+    secret: null,
+  })
+  return { ...result, signer: wide, userPubkey: await wide.getPublicKey() }
+}
+
+function sameRelaySet(a: string[], b: string[]): boolean {
+  const norm = (urls: string[]) => [...new Set(urls.map(canonical))].sort().join(' ')
+  return norm(a) === norm(b)
+}
+
+function canonical(url: string): string {
+  try { return normalizeURL(url) } catch { return url }
 }
 
 function unionRelays(a: string[], b: string[]): string[] {
   const seen = new Set<string>()
   return [...a, ...b].filter(url => {
-    let key = url
-    try { key = normalizeURL(url) } catch { /* 그대로 */ }
+    const key = canonical(url)
     if (seen.has(key)) return false
     seen.add(key)
     return true

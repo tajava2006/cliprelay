@@ -8,6 +8,8 @@ import type { SimplePool } from 'nostr-tools/pool'
 import { createPool } from './pool.ts'
 import type { Event } from 'nostr-tools/core'
 import { BLOSSOM_SERVER_LIST_KIND } from './constants.ts'
+import { fetchLatest } from './fetch-latest.ts'
+import type { Discovered } from './relay-discovery.ts'
 
 /** kind:10063 이벤트에서 Blossom 서버 URL 목록 추출 */
 export function parseBlossomServers(event: Event): string[] {
@@ -17,7 +19,7 @@ export function parseBlossomServers(event: Event): string[] {
 }
 
 /**
- * 사용자의 kind:10063 이벤트를 한 번 조회해 서버 목록 반환. 없으면 null.
+ * 사용자의 kind:10063 이벤트를 한 번 조회해 서버 목록 반환.
  * @param userPubkey  사용자 공개키
  * @param writeRelays 사용자의 write 릴레이 (이미 알고 있으므로 하드코딩 불필요)
  */
@@ -25,17 +27,17 @@ export async function fetchBlossomServers(
   userPubkey: string,
   writeRelays: string[],
   externalPool?: SimplePool,
-): Promise<string[] | null> {
-  if (writeRelays.length === 0) return null
+): Promise<Discovered<string[]>> {
+  if (writeRelays.length === 0) return 'unreachable'
   const pool = externalPool ?? createPool()
   try {
-    const event = await pool.get(writeRelays, {
+    const { event, answered } = await fetchLatest(pool, writeRelays, {
       kinds: [BLOSSOM_SERVER_LIST_KIND],
       authors: [userPubkey],
     })
-    if (!event) return null
+    if (!event) return answered > 0 ? 'none' : 'unreachable'
     const servers = parseBlossomServers(event)
-    return servers.length > 0 ? servers : null
+    return servers.length > 0 ? servers : 'none'
   } finally {
     if (!externalPool) pool.destroy()
   }

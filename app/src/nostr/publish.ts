@@ -27,6 +27,13 @@ export async function publishClipboard(
      * 텍스트는 이미 보낸 것과 같아도 보내야 하므로 이걸 켠다.
      */
     force?: boolean
+    /**
+     * 중복 가드를 히스토리 전체로 넓힌다(기본은 직전 항목 하나).
+     * "클립보드가 방금 바뀌었다"는 확신 없이 현재 내용을 통째로 내보내는 호출자용 —
+     * Android가 프로세스 재시작 후 처음 포그라운드에 올라올 때가 그렇다. 그때
+     * 폰에 남아 있던 옛 내용을 새 복사로 오인해 다른 기기를 덮어쓰면 안 된다.
+     */
+    dedupeWholeHistory?: boolean
   },
 ): Promise<void> {
   if (writeRelays.length === 0) {
@@ -36,7 +43,9 @@ export async function publishClipboard(
 
   // 텍스트 가드:
   // 1) 빈 문자열 — 유휴 상태 복귀 직후 OS 클립보드가 비어있는 경우 발행 방지
-  // 2) 히스토리 중복 — 같은 내용을 반복 발행해 다른 기기에 노이즈를 만들지 않음
+  // 2) 직전 항목과 동일 — 모니터가 같은 내용을 연달아 발행하는 노이즈 방지.
+  //    히스토리 전체와 비교하면 안 된다: 예전에 복사했던 걸 다시 복사했을 때
+  //    (A → 다른 기기에서 B → 다시 A) 다른 기기는 B인 채로 남는다.
   if (payload.type === 'text') {
     if (payload.content === '') {
       console.log('[publish] empty text, skipping')
@@ -44,11 +53,9 @@ export async function publishClipboard(
     }
     if (!opts?.force) {
       const history = await loadHistory()
-      const duplicate = history.some(
-        item => item.payload.type === 'text' && item.payload.content === payload.content,
-      )
-      if (duplicate) {
-        console.log('[publish] text already in history, skipping')
+      const against = opts?.dedupeWholeHistory ? history : history.slice(0, 1)
+      if (against.some(item => item.payload.type === 'text' && item.payload.content === payload.content)) {
+        console.log('[publish] duplicate of', opts?.dedupeWholeHistory ? 'a history item' : 'the latest item', '— skipping')
         return
       }
     }
@@ -60,7 +67,6 @@ export async function publishClipboard(
   const signer = getSigner()
 
   console.log('[publish] encrypting, userPubkey:', auth.userPubkey.slice(0, 8))
-  toast(t('toast.encrypt.start'))
   // 버거가 userPrivkey로 자기 자신과 NIP-44 암호화
   // 암호화 실패 시 예외 → 호출자에서 발행 중단
   let ciphertext: string
@@ -70,7 +76,6 @@ export async function publishClipboard(
     toast(t('toast.encrypt.fail'), 'error')
     throw err
   }
-  toast(t('toast.encrypt.ok'), 'ok')
   console.log('[publish] encrypted, requesting signature')
 
   // concealed는 릴레이 잔류도 짧게 — 전달 창구(수 분)만 확보하면 충분하다
@@ -104,16 +109,13 @@ export async function publishClipboard(
     }).catch(err => console.error('[publish] history save failed:', err))
   }
 
-  toast(t('toast.broadcast.start'))
   const pool = getSharedPool()
   const results = await Promise.allSettled(pool.publish(writeRelays, event))
+  // 토스트는 실패만. 성공은 조용히 지나가고 릴레이 상태는 메인 화면에 있다.
   for (let i = 0; i < writeRelays.length; i++) {
+    if (results[i].status === 'fulfilled') continue
     const relay = writeRelays[i].replace(/^wss?:\/\//, '')
-    if (results[i].status === 'fulfilled') {
-      toast(`${relay} — ${t('toast.relay.ok')}`, 'ok')
-    } else {
-      toast(`${relay} — ${t('toast.relay.fail')}`, 'error')
-    }
+    toast(`${relay} — ${t('toast.relay.fail')}`, 'error')
   }
   const ok = results.filter(r => r.status === 'fulfilled').length
   if (ok === 0) throw new Error('All relays publish failed')

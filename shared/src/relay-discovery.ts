@@ -4,6 +4,7 @@
  * RELAY_LIST_KIND 이벤트에서 write 릴레이 목록을 추출한다.
  * 클립보드 이벤트 발행/구독에는 write 릴레이만 사용한다.
  */
+import { fetchLatest } from './fetch-latest.ts'
 import type { SimplePool } from 'nostr-tools/pool'
 import { createPool } from './pool.ts'
 import type { Event } from 'nostr-tools/core'
@@ -34,19 +35,22 @@ export function parseWriteRelays(event: Event): string[] {
 // ─── One-shot fetch ──────────────────────────────────────────
 
 /**
- * 사용자의 kind:10002 이벤트를 한 번 조회해 write 릴레이 반환.
- * 이벤트 없거나 write 릴레이가 없으면 null 반환.
+ * 조회 결과. 'unreachable'은 "없다"가 아니라 "모른다"다 — 디스커버리 릴레이가
+ * 하나도 답하지 않았다. 이때 디폴트 목록을 발행하면 사용자의 진짜 목록을 덮어쓴다.
  */
-export async function fetchWriteRelays(userPubkey: string, externalPool?: SimplePool): Promise<string[] | null> {
+export type Discovered<T> = T | 'none' | 'unreachable'
+
+/** 사용자의 kind:10002 이벤트를 한 번 조회해 write 릴레이 반환. */
+export async function fetchWriteRelays(userPubkey: string, externalPool?: SimplePool): Promise<Discovered<string[]>> {
   const pool = externalPool ?? createPool()
   try {
-    const event = await pool.get(NIP65_DISCOVERY_RELAYS, {
+    const { event, answered } = await fetchLatest(pool, NIP65_DISCOVERY_RELAYS, {
       kinds: [RELAY_LIST_KIND],
       authors: [userPubkey],
     })
-    if (!event) return null
+    if (!event) return answered > 0 ? 'none' : 'unreachable'
     const relays = parseWriteRelays(event)
-    return relays.length > 0 ? relays : null
+    return relays.length > 0 ? relays : 'none'
   } finally {
     if (!externalPool) pool.destroy()
   }

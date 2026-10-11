@@ -1,5 +1,8 @@
 # ClipRelay 코드 감사 보고서
 
+> ⚠️ 2026-04 시점의 감사다. 본문의 `파일:줄` 참조는 그때 기준이라 지금 코드와 어긋난다.
+> 상태 표(맨 아래)만 갱신하고 있으니, 미완료 항목을 볼 땐 현재 코드로 다시 확인할 것.
+
 > 분석일: 2026-04-12  
 > 최종 업데이트: 2026-04-18  
 > 대상: 전체 코드베이스 (shared/, app/src/, app/src-tauri/)
@@ -31,20 +34,15 @@ NIP-46 세션의 `clientPrivkey`가 tauri-plugin-store를 통해 파일시스템
 
 ---
 
-### [C-2] 수신 이벤트 서명 미검증 — CRITICAL
+### [C-2] 수신 이벤트 서명 미검증 — ~~CRITICAL~~ ✅ 해당 없음 (WebView) / LOW 잔여 (Android 네이티브)
 
-**위치:** `app/src/nostr/subscribe.ts:146-158`
+2026-10-11 재검토. WebView 쪽 수신은 전부 nostr-tools `SimplePool`을 거치고, pool은 수신
+이벤트를 기본으로 `verifyEvent`한다(`shared/src/pool.ts`의 `GuardedPool`이 이를 상속).
+게다가 content는 사용자 자신의 키로 NIP-44 자기암호화돼 있어, 서명을 통과하지 못하는 위조
+이벤트는 복호화도 통과하지 못한다 — 임의 내용이 클립보드에 쓰일 경로는 없다.
 
-```typescript
-const clientTag = event.tags.find(tag => tag[0] === 'client')
-if (clientTag?.[1] !== CLIENT_TAG) {
-  return  // client 태그만 확인, 서명 검증 없음
-}
-```
-
-수신된 kind:9372 이벤트에 대해 `client` 태그만 확인하고 **이벤트 서명(sig)을 검증하지 않는다.** nostr-tools의 SimplePool이 기본적으로 서명을 검증하긴 하지만, 이는 라이브러리 구현에 의존하는 것이며 명시적 검증이 없다. 악의적 릴레이가 위조 이벤트를 주입하면 사용자 클립보드에 임의 내용이 쓰일 수 있다.
-
-**권장:** `nostr-tools/pure`의 `verifyEvent()`로 서명을 명시적으로 검증한 후 처리.
+남은 것은 Android 백그라운드용 네이티브 구독(`NativeRelayClient.kt`)이 서명 검증 없이 알림을
+띄우는 점이다. 영향은 가짜 알림 수준이라 TODO.md로 옮겼다.
 
 ---
 
@@ -396,7 +394,7 @@ TypeScript strict 모드에서도 `as` 캐스팅은 런타임 안전성을 보�
 ### P0 — 즉시 수정
 | ID | 제목 | 상태 |
 |----|------|------|
-| C-2 | 수신 이벤트 서명 미검증 → verifyEvent() 추가 | 미완료 |
+| C-2 | 수신 이벤트 서명 미검증 | ✅ 해당 없음 (pool이 검증) — Android 네이티브 잔여는 TODO.md |
 | C-3 | CSP 비활성화 → strict CSP 설정 | ✅ 완료 |
 
 ### P1 — 다음 릴리스 전

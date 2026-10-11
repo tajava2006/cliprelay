@@ -6,26 +6,11 @@
 
 ## 보안
 
-### client-keypair OS 암호화 저장소 이전
+### Android 네이티브 구독의 이벤트 서명 검증
 
-**현재**: `tauri-plugin-store`로 평문(또는 단순 파일) 저장
-**목표**: OS 네이티브 암호화 저장소 사용
-
-| 플랫폼 | 저장소 |
-|--------|--------|
-| macOS | Keychain (securityd) |
-| Windows | Credential Manager / DPAPI |
-| Linux | Secret Service (GNOME Keyring / KWallet) |
-| Android | Android Keystore |
-
-**방법 (검토 필요)**
-- Rust `keyring` 크레이트 (v3) — macOS/Windows/Linux 단일 API 추상화
-- Android 지원 여부 확인 필요. 미지원 시 `tauri-plugin-stronghold` 또는 Android Keystore 직접 연동 검토
-- Tauri 백엔드 command로 노출 → TS에서 `invoke('store_keypair', ...)` 형태로 사용
-
-**왜 중요한가**
-- client-keypair는 nostr 사용자 개인키 자체는 아니지만, 통신용 비밀키이므로 평문 저장은 부적절
-- OS keychain은 OS 로그인 시 자동 잠금 해제 → 별도 앱 비밀번호 UX 없이 동등한 보안
+WebView 쪽은 nostr-tools pool이 수신 이벤트 서명을 검증하지만, 백그라운드용 네이티브
+구독(`NativeRelayClient.kt`, OkHttp)은 검증 없이 알림을 띄운다. 위조 이벤트는 복호화가
+실패하므로 클립보드가 오염되지는 않고, 가짜 "새 클립보드" 알림이 뜨는 수준이다.
 
 ---
 
@@ -75,3 +60,21 @@ Amber 앱 아키텍처 참조. 목표: 앱이 명시적으로 끄기 전까지 �
 ### 파일 동기화 스코프 아웃 여부
 - 대용량 파일: NIP-46 서명 왕복 + Blossom 업로드 직렬화로 레이턴시 큼
 - 클립보드 동기화 본질에 반드시 필요한지 재검토 필요
+
+---
+
+## 구조 정리 (남은 것)
+
+2026-04의 리팩토링 검토(REFACTOR.md)는 대부분 반영돼 문서를 지웠다. 남은 세 가지:
+
+- `ForegroundServicePlugin.kt`(300줄대) 파일 분할
+- `ClipboardActionActivity.kt`가 `gen/android/` 아래에 있다 — 플러그인 내부로 이전 검토
+- Blossom 다운로드 + AES-GCM 복호화가 TS와 Kotlin에 각각 있다 (알림 탭 경로가 Kotlin 쪽을 씀)
+
+## 알려진 한계
+
+- **Android에서 예전 텍스트 재복사**: 프로세스가 재시작된 직후 첫 포그라운드 진입에서는
+  클립보드 내용이 새 복사인지 알 수 없어 히스토리 전체와 대조한다. 그 순간에 한해, 히스토리에
+  있는 텍스트를 다시 복사한 것은 발행되지 않는다. (데스크탑과, 프로세스가 살아 있는 Android는
+  직전 항목과만 대조한다.)
+
